@@ -57,7 +57,7 @@
 | O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 未確定 |
 | O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 未確定 |
 | O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：**ない**（§11）。対応は O-08 |
-| O-05 | プロダクト名（リポジトリ名） | ユーザーが決定 | 未確定（候補：kumu、hikidashi をキープ中） |
+| O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
 | O-06 | コーディング規約（Biome、TS strict、改行コード、日本語コメントなど）。既存の spreadsheet-grid / Hayami に合わせるか | ユーザーが決定 | 解決（D-10） |
 | O-07 | 取得上限の既定値。提案は 10 万行（設定で変更可） | ユーザーが決定 | 解決（D-11） |
 | O-08 | spreadsheet-grid に足りない機能（§11.3）を、ライブラリ側に追加するか、アプリ側の回避策で済ませるか | ユーザーが決定 | 解決（D-12） |
