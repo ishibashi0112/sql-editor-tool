@@ -1,0 +1,20 @@
+{
+  "name": "sql-editor-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "社内 DB（SQL Server / Oracle）向けの GUI 検索ツール（VS Code 拡張）。仮称",
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

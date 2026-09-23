@@ -1,0 +1,8 @@
+# 改行コードを LF に固定する（会社 PC の Windows で clone しても CRLF にしない）
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.vsix binary

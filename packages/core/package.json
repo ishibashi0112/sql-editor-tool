@@ -1,0 +1,13 @@
+{
+  "name": "@sql-editor-tool/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "方言、フィルタ記述子 → WHERE 句、スキーマモデル。ホストにも DB ドライバにも依存しない",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  }
+}
