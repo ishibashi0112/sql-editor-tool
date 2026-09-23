@@ -1,0 +1,20 @@
+# 依存
+node_modules/
+
+# 接続情報（.env.example はコミットする）
+.env
+.env.*
+!.env.example
+
+# 検証スクリプトの出力（社内のスキーマ名・データを含みうる）
+verify/out/
+
+# ビルド成果物
+dist/
+out/
+*.vsix
+*.tsbuildinfo
+
+# OS・エディタ
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+{
+  "name": "verify",
+  "private": true,
+  "type": "module",
+  "description": "会社PCで社内DBへの接続と前提を確認するためのスクリプト",
+  "scripts": {
+    "ora": "node oracle-run.mjs",
+    "ms": "node mssql-run.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mssql": "^11.0.1",
+    "oracledb": "^6.6.0"
+  }
+}

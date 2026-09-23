@@ -1,0 +1,13 @@
+-- スキーマ全体の型の分布（varchar と nvarchar の比率はバインド型の設計に効く）
+SELECT DATA_TYPE, COUNT(*) AS cnt
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = @schema
+GROUP BY DATA_TYPE
+ORDER BY cnt DESC;
+
+-- decimal / numeric の精度の分布（15桁を超えるものはJavaScriptの数値で精度が落ちる）
+SELECT NUMERIC_PRECISION, NUMERIC_SCALE, COUNT(*) AS cnt
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = @schema AND DATA_TYPE IN ('decimal', 'numeric')
+GROUP BY NUMERIC_PRECISION, NUMERIC_SCALE
+ORDER BY cnt DESC;
