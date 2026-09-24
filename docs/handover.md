@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-24（spreadsheet-grid v0.41.0 の対応を確認し、Webview で使うときの注意点（§11.5）と D-15・D-16 を追加）
+最終更新：2026-09-24（spreadsheet-grid v0.41.0 の対応を確認し、Webview で使うときの注意点（§11.5）と D-15・D-16 を追加。集合フィルタの候補値の SQL を core に実装）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -126,9 +126,15 @@
 - **Oracle の CHAR 列**：文字列をバインドして CHAR 列と比較すると、末尾空白の扱いの違いで一致しないことがある。インデックスを効かせるため、列側ではなくバインド側を `RPAD(:p, 列長)` で埋める。SQL Server の `=` は末尾空白を無視するので不要。
 - **SQL Server のバインド型**：`mssql` は文字列パラメータを既定で NVARCHAR として送る。VARCHAR 列と比較すると暗黙の型変換でインデックスが効かなくなることがあるので、スキーマ情報から列の実際の型（VARCHAR と長さ）でバインドする。
 - **数値の精度**：Oracle の NUMBER や SQL Server の decimal で 15 桁を超えうる列は、JavaScript の数値に変換すると下の桁が狂う。文字列として取得する（方法はドライバごとに実装時に検証）。
-- **セットフィルタの候補値**：DB から `DISTINCT` に件数上限をかけて取得する。
+- **セットフィルタの候補値**：DB から `DISTINCT` に件数上限をかけて取得する（D-16）。
+  - ほかの列の条件で絞る。候補を取る列自身の条件は使わない（グリッドが取得した候補に当てる）。
+  - 上限 + 1 件を取り、はみ出したら打ち切り（`truncated`）とする。
+  - 空欄を先頭に並べる（Oracle は `NULLS FIRST`、SQL Server は昇順で NULL と空文字が先頭）。打ち切られても空欄は候補に残る。
+  - 日付型の列は `CONVERT(char(8), col, 112)` / `TO_CHAR(col, 'YYYYMMDD')` で日単位の文字列にして取る。時刻を持つ列でも候補は日ごとになり、Date で受けたときのタイムゾーンのずれも起きない。
+  - 結果は `toFilterOptions` で候補にする。NULL と空文字は `''`（ラベル `（空白）`）、日付は `'YYYY-MM-DD'`。その値をそのまま WHERE の生成に渡せる。
+  - 列に索引がない大きいテーブルでは、`DISTINCT` が全件走査になる。所要時間は会社 PC で確かめる。
 - **識別子**：列名・テーブル名は常に引用符で囲む（SQL Server は `[...]`、Oracle は `"..."`）。予約語や日本語の列名でも壊れないようにするため。
-- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`dialect.ts`（方言の差）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
+- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`filterOptions.ts`（集合フィルタの候補値）、`dialect.ts`（方言の差）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
 
 ## 7. アーキテクチャ（提案）
 
@@ -173,7 +179,8 @@ packages/
 3. ~~O-04（spreadsheet-grid の外部フィルタモード）を確認する。~~ 済み（§11）。対応方針は O-08
 4. ~~モノレポの雛形を作る。~~ 済み（仮称 `@sql-editor-tool/*`、D-13）。O-05（名前）は未確定のまま
 5. ~~core から実装する：フィルタ記述子 → WHERE 句（SQL Server / Oracle の両方言）を、単体テスト付きで作る。~~ 済み（`packages/core`、SELECT 文とリテラル版を含む）
-   - 残り：セットフィルタの候補値の SQL（`SELECT DISTINCT` ＋件数上限。ほかの列の条件で絞る）、段階2のベースSQL の包み込み
+   - ~~セットフィルタの候補値の SQL（`SELECT DISTINCT` ＋件数上限。ほかの列の条件で絞る）~~ 済み（`filterOptions.ts`、§6）
+   - 残り：段階2のベースSQL の包み込み
    - ~~spreadsheet-grid への機能追加（D-12）は datasheet-grid リポジトリで進める~~ 済み（v0.41.0、§11.5）
 6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
 
@@ -255,7 +262,7 @@ D-12 の依頼（`docs/spreadsheet-grid-requests.md`）は **5 項目すべて v
 | （便利機能）変更通知 | `onFiltersChange(filters)` / `onSortChange(sort)`。該当スライスが実際に変化したときだけ発火 |
 
 - 5（`yyyymmdd`）と 6（ストリーミング）は依頼していない。方針は §11.3 のまま。
-- `getFilterOptions` の候補 SQL（`SELECT DISTINCT` ＋件数上限＋他列条件で絞る）は core 側の残タスク（§10 の 5）。`truncated: true` を返せば popover に「先頭のみ・打ち切り」が出る。
+- `getFilterOptions` の候補 SQL（`SELECT DISTINCT` ＋件数上限＋他列条件で絞る）は core に実装済み（`buildFilterOptionsQuery` / `toFilterOptions`、§6）。`truncated: true` を返せば popover に「先頭のみ・打ち切り」が出る。
 - `onStateChange` を自前で前回値と比較する処理は不要になった（`onFiltersChange` / `onSortChange` が差分判定済み）。
 
 確認（2026-09-24）：npm の 0.41.0（react / core）の tarball に上の API が入っていること、datasheet-grid で v0.41.0 に追加されたテスト（7 ファイル、75 件）が通ることを確かめた。

@@ -16,6 +16,8 @@ export type Dialect = {
   readonly likeSpecialChars: RegExp;
   /** 'yyyymmdd' 文字列の値を日付型にする式 */
   dateFromYmd(value: Sql): Sql;
+  /** 日付型の値を 'yyyymmdd' 文字列にする式（時刻は切り捨てる） */
+  ymdFromDate(value: Sql): Sql;
   /** 固定長文字列（CHAR）の列と比べる値の式 */
   padFixedChar(value: Sql, length: number): Sql;
   /** IN の要素数の上限。超えたら分割して OR で繋ぐ */
@@ -42,6 +44,7 @@ export const mssql: Dialect = {
   likeSpecialChars: /[\\%_[]/g,
   // スタイル 112 = yyyymmdd。言語や DATEFORMAT の設定に左右されない
   dateFromYmd: (value) => sql`CONVERT(date, ${value}, 112)`,
+  ymdFromDate: (value) => sql`CONVERT(char(8), ${value}, 112)`,
   // SQL Server の = は末尾の空白を無視するので、埋める必要はない
   padFixedChar: (value) => value,
   maxInListSize: Number.POSITIVE_INFINITY,
@@ -60,6 +63,7 @@ export const oracle: Dialect = {
   emptyStringIsNull: true,
   likeSpecialChars: /[\\%_]/g,
   dateFromYmd: (value) => sql`TO_DATE(${value}, 'YYYYMMDD')`,
+  ymdFromDate: (value) => sql`TO_CHAR(${value}, 'YYYYMMDD')`,
   // CHAR 列とバインド値の比較は空白埋めをしない比較になるため、値の側を列長まで埋める。
   // 列側を RTRIM するとインデックスが効かなくなる
   padFixedChar: (value, length) =>

@@ -38,6 +38,12 @@ export function toYmd(key: string): string {
   return key.replaceAll("-", "");
 }
 
+/** 'YYYYMMDD' → 'YYYY-MM-DD'。実在しない日付（'00000000' など）や形式違いは null */
+export function ymdToDateKey(ymd: string): string | null {
+  const m = ymd.trim().match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m ? normalizeDateKey(`${m[1]}-${m[2]}-${m[3]}`) : null;
+}
+
 /** ローカル時刻での日付キー（グリッドの formatDateKey と同じ規則） */
 export function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;

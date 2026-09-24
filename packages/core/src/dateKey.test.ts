@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { nextDateKey, normalizeDateKey, toYmd } from "./dateKey";
+import { nextDateKey, normalizeDateKey, toYmd, ymdToDateKey } from "./dateKey";
 
 describe("normalizeDateKey", () => {
   test("区切りと桁をそろえる", () => {
@@ -31,4 +31,13 @@ describe("nextDateKey", () => {
 
 test("toYmd", () => {
   expect(toYmd("2026-09-23")).toBe("20260923");
+});
+
+test("ymdToDateKey", () => {
+  expect(ymdToDateKey("20260923")).toBe("2026-09-23");
+  // CHAR 列の末尾の空白
+  expect(ymdToDateKey("20260923  ")).toBe("2026-09-23");
+  expect(ymdToDateKey("00000000")).toBe(null);
+  expect(ymdToDateKey("20260230")).toBe(null);
+  expect(ymdToDateKey("2026-09-23")).toBe(null);
 });

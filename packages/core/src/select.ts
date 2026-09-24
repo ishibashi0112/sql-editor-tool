@@ -40,7 +40,9 @@ export type SelectInput = ConditionOptions & {
   limit?: number;
 };
 
-function finish(fragment: Sql, dialect: Dialect): BuiltQuery {
+// finish / fromTable / checkLimit は候補値の SQL（filterOptions.ts）でも使う
+
+export function finish(fragment: Sql, dialect: Dialect): BuiltQuery {
   return {
     ...renderBind(fragment, dialect),
     literalSql: renderLiteral(fragment, dialect),
@@ -76,7 +78,7 @@ export function buildSelect(input: SelectInput): BuiltQuery {
     dialect.name === "mssql" && limit
       ? sql`SELECT TOP (${limit}) *`
       : sql`SELECT *`,
-    sql`FROM ${raw(`${q(input.table.schema)}.${q(input.table.name)}`)}`,
+    sql`FROM ${fromTable(dialect, input.table)}`,
   ];
   if (conditions.length > 0) {
     lines.push(sql`WHERE ${join(conditions, "\n  AND ")}`);
@@ -99,11 +101,20 @@ export function buildSelect(input: SelectInput): BuiltQuery {
   return finish(join(lines, "\n"), dialect);
 }
 
-function limitParam(limit: number): Param {
+export function fromTable(dialect: Dialect, table: TableRef): Sql {
+  const q = (name: string) => dialect.quoteIdent(name);
+  return raw(`${q(table.schema)}.${q(table.name)}`);
+}
+
+export function checkLimit(limit: number, what: string): number {
   if (!Number.isSafeInteger(limit) || limit < 1) {
     throw new QueryBuildError(
-      `取得件数の上限は 1 以上の整数にしてください（${limit}）`,
+      `${what}の上限は 1 以上の整数にしてください（${limit}）`,
     );
   }
-  return new Param(limit, { kind: "integer" });
+  return limit;
+}
+
+function limitParam(limit: number): Param {
+  return new Param(checkLimit(limit, "取得件数"), { kind: "integer" });
 }

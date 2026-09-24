@@ -1,6 +1,7 @@
 export {
   normalizeDateKey,
   resolveBuiltinDatePreset,
+  ymdToDateKey,
 } from "./dateKey";
 export {
   type Dialect,
@@ -18,6 +19,13 @@ export type {
   SetSelection,
   SortEntry,
 } from "./filter";
+export {
+  buildFilterOptionsQuery,
+  type FilterOption,
+  type FilterOptionsQueryInput,
+  type FilterOptionsResult,
+  toFilterOptions,
+} from "./filterOptions";
 export type {
   ColumnInfo,
   ColumnType,
