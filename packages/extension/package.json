@@ -1,0 +1,146 @@
+{
+  "name": "sql-editor-tool",
+  "displayName": "SQL Editor Tool（仮称）",
+  "description": "社内 DB（SQL Server / Oracle）を、列見出しのフィルタで絞り込んで見る読み取り専用のツール",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "ishibashi0112",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ishibashi0112/sql-editor-tool.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sqlEditorTool",
+          "title": "SQL Editor Tool",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sqlEditorTool": [
+        {
+          "id": "sqlEditorTool.connections",
+          "name": "接続"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sqlEditorTool.connections",
+        "contents": "接続がありません。\n[接続を追加](command:sqlEditorTool.addConnection)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sqlEditorTool.addConnection",
+        "title": "接続を追加",
+        "category": "SQL Editor Tool",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sqlEditorTool.removeConnection",
+        "title": "接続を削除",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.disconnect",
+        "title": "切断",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.refresh",
+        "title": "最新の情報に更新",
+        "category": "SQL Editor Tool",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sqlEditorTool.openTable",
+        "title": "データを開く",
+        "category": "SQL Editor Tool"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sqlEditorTool.addConnection",
+          "when": "view == sqlEditorTool.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlEditorTool.refresh",
+          "when": "view == sqlEditorTool.connections",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sqlEditorTool.disconnect",
+          "when": "view == sqlEditorTool.connections && viewItem == connection"
+        },
+        {
+          "command": "sqlEditorTool.removeConnection",
+          "when": "view == sqlEditorTool.connections && viewItem == connection"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sqlEditorTool.removeConnection",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.disconnect",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.openTable",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SQL Editor Tool",
+      "properties": {
+        "sqlEditorTool.maxRows": {
+          "type": "integer",
+          "default": 100000,
+          "minimum": 1,
+          "description": "1 回に取得する行数の上限。超えたときは上限までを表示し、条件の追加を促します。"
+        },
+        "sqlEditorTool.filterOptionsLimit": {
+          "type": "integer",
+          "default": 10000,
+          "minimum": 1,
+          "description": "列見出しのフィルタで、値の候補として取得する件数の上限。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package:vsix": "node esbuild.mjs --production && vsce package --no-dependencies --skip-license -o ../../releases/"
+  },
+  "dependencies": {
+    "@sql-editor-tool/core": "workspace:*",
+    "@sql-editor-tool/host": "workspace:*",
+    "@sql-editor-tool/webview": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.x",
+    "@types/vscode": "1.75.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2"
+  }
+}

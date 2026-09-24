@@ -1,2 +1,15 @@
 packages:
   - packages/*
+
+# ビルドスクリプトの許可設定
+# esbuild は optionalDependencies でバイナリを取得するので、ビルドスクリプトは不要
+# @vscode/vsce-sign / keytar は Marketplace への公開・署名用なので、vsix を作るだけなら不要
+allowBuilds:
+  '@vscode/vsce-sign': false
+  esbuild: false
+  keytar: false
+
+# 公開から日が浅く、minimumReleaseAge に引っかかるもの（自作ライブラリ）
+minimumReleaseAgeExclude:
+  - '@ishibashi0112/spreadsheet-grid-core@0.41.0'
+  - '@ishibashi0112/spreadsheet-grid@0.41.0'

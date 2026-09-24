@@ -1,0 +1,6 @@
+# vsix に入れるのは dist・media・package.json だけ（esbuild でまとめているので node_modules も不要）
+**
+!dist/**
+!media/**
+!package.json
+**/*.map

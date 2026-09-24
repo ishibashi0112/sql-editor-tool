@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Node（拡張）とブラウザ（開発用ページ）の両方で動く。setTimeout / AbortController の型のために DOM を入れる
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src"]
+}

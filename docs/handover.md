@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-24（段階2のベースSQL の包み込みを core に実装し、D-17 を追加）
+最終更新：2026-09-24（段階2のベースSQL の包み込みを core に実装。拡張本体・Webview・host の土台をデモ接続で動く形まで作り、D-17〜D-20 と §12 を追加）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -52,6 +52,9 @@
 | D-15 | 段階1では、グリッドのグローバルフィルタ（上部バーの検索欄）を使わない（`enableGlobalFilter={false}`）。`manualFiltering` ではグリッドが絞り込まず、core も `globalText` を WHERE にしないので、入力しても何も起きないため。全列の LIKE を OR で繋ぐ案は、インデックスが効かず重いので見送る | 提案 |
 | D-16 | 集合フィルタの候補値は、DB から `SELECT DISTINCT` に件数上限をかけて取得する（§6）。上限の既定値は 1 万件（Excel の候補表示と同じ。設定で変更可）。グリッドの候補リストは仮想化されているので、1 万件でも表示できる | 提案 |
 | D-17 | ベースSQL は「1 つの SELECT / WITH 文で、バインド変数を含まないもの」に限る。SQL Server では、最上位の ORDER BY は TOP か OFFSET があるときだけ使える（派生テーブルの制約）。並べ替えは列見出しで指定する（§5 段階2） | 提案 |
+| D-18 | 実行は「実行」ボタンか **Ctrl+Enter**（Mac は Cmd+Enter）。§5 の「Enter キー」から変える。Enter だけだと、グリッドのセル移動やフィルタの確定と重なるため | 提案 |
+| D-19 | 行は「行ごとの配列」（`CellValue[][]`）のチャンクで Webview に送る。§5 の「列ごとの配列」から変える。グリッドの `getValue: row => row[i]` でそのまま読め、行オブジェクトへの変換が要らないため。Webview は受け取った行を 200ms ごとにまとめて画面に反映する | 提案 |
+| D-20 | VS Code に依存しないアプリ層を `packages/host` に置く（Webview とのメッセージ、ドライバのインターフェイス `DbSession`、データビューの制御 `DataViewController`、デモ接続）。拡張はこれを VS Code につなぐだけにする。ブラウザの開発用ページでも同じ制御を動かせる（§12） | 提案 |
 
 ## 4. 未確定事項
 
@@ -150,11 +153,15 @@ pnpm のモノレポ。
 ```
 packages/
   core/            方言、フィルタ記述子 → WHERE 句、スキーマモデル。依存なしの純 TypeScript。一番厚くテストする
-  driver-mssql/    mssql（tedious）のアダプタ
-  driver-oracle/   node-oracledb（Thin）のアダプタ
-  extension/       VS Code 拡張本体（ホスト側）
-  webview/         React＋spreadsheet-grid の画面
+  host/            VS Code に依存しないアプリ層（D-20）：Webview とのメッセージ、DbSession、DataViewController、デモ接続
+  driver-mssql/    mssql（tedious）のアダプタ（未作成。DbSession を実装する）
+  driver-oracle/   node-oracledb（Thin）のアダプタ（未作成。DbSession を実装する）
+  extension/       VS Code 拡張本体：接続の管理、ツリー、Webview パネル。host を VS Code につなぐ
+  webview/         React＋spreadsheet-grid の画面。dev/ はブラウザで確かめる開発用ページ
 ```
+
+- ドライバが守ること（`packages/host/src/session.ts`）：結果の列名を `onColumns` で先に渡す。行は数百〜数千行ずつ `onRows` で渡す。日付・時刻は `'YYYY-MM-DD HH:mm:ss'` などの文字列、15 桁を超えうる数値は文字列にする。`signal` が中断されたら DB 側の実行も止めて、`AbortError` を投げる。
+- `QueryRequest.intent` はデモ接続が SQL を解釈せずに結果を作るための情報で、実際のドライバは使わない。
 
 - core はホストに依存させない。将来デスクトップ版（Hayami 系の Electrobun や webview2-bridge）に載せ替えられるようにするため。
 - core のフィルタ記述子は、spreadsheet-grid のフィルタ記述子（判別共用体）と対応させる。
@@ -190,6 +197,9 @@ packages/
    - ~~段階2のベースSQL の包み込み~~ 済み（`baseSql.ts`、§5 段階2、D-17）
    - ~~spreadsheet-grid への機能追加（D-12）は datasheet-grid リポジトリで進める~~ 済み（v0.41.0、§11.5）
 6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
+   - ~~拡張本体と Webview の土台~~ 済み（デモ接続で、接続の追加 → ツリー → テーブルを開く → フィルタ → SQL プレビュー → 実行 → 取得・中止・上限、まで動く。§12）
+   - 残り（段階1）：列の意味型の上書き（日付など）とその候補の提案、キーの上書き、段階2の画面（ベースSQL を開く、`checkBaseColumns`）
+   - ドライバ（driver-mssql / driver-oracle）は、O-02 / O-03 の確認が済んでから作る。今は接続を追加できるが、開くと「ドライバはまだ実装していません」と出る
 
 ## 11. spreadsheet-grid の調査結果（O-04、v0.40.0）
 
@@ -280,3 +290,16 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
 - **候補を打ち切ったときの「全部チェック」**：表示中の候補を全部チェックすると、グリッドはフィルタの解除として扱う（`filterPopoverCommands.ts` の `commitSetFilterSelection`。選んだ数が候補数以上なら解除）。候補を打ち切っていると、画面に出ていない値の行まで結果に入る。上限は 1 万件（D-16）なので、手で全部チェックすることはまずなく、実害は小さいと見ている。問題になったら、打ち切り時は解除にしないようライブラリに相談する。
   - 全選択の状態から外していく操作は `exclude`（`NOT IN`）になり、候補の外の値は残る。これは依頼どおりの動き。
 - **候補の検索欄**：検索するのは取得済みの候補だけで、DB に再取得はしない。値の種類が多い文字列の列では、条件（含む・前方一致など）で絞れるように、文字列の列は `textSet`（条件＋値の選択）にしておく（提案）。
+
+## 12. 開発の手順（2026-09-24）
+
+- 確認：`pnpm lint`、`pnpm typecheck`、`pnpm test`（core と host の単体テスト）。
+- **開発用ページ**（ブラウザで画面を確かめる）：`pnpm --filter @sql-editor-tool/webview dev:build` のあと、`packages/webview/dev/index.html` をブラウザで開く。ホスト側の制御とデモ接続を同じページの中で動かす。クエリで切り替えられる（`?table=CUSTOMERS&dialect=oracle&maxRows=5000`）。
+- **拡張のビルド**：`pnpm --filter sql-editor-tool build`（`packages/extension/dist/` に拡張本体と Webview を出力）。VS Code で `packages/extension` を拡張開発ホストとして開けば試せる。
+- **vsix**：`pnpm --filter sql-editor-tool package:vsix`（`releases/` に出力。コミットしない）。会社 PC の VS Code に入れれば、デモ接続で動きを確かめられる。
+- デモ接続は架空のデータ（受注・得意先・品目と、ビュー 1 つ）で、社内のテーブルとは関係ない。SQL は作るが、条件で行を絞り込まない（並べ替えと件数の上限だけ効く）。画面にもその旨を出している。
+- Webview の注意点（実装して分かったこと）：
+  - グリッドの `height="100%"` は内側のスクロール領域に当たる。外枠（`.ssg-root`）を縦の flex にし、`.ssg-shell` を伸ばさないと全行が描画される（仮想スクロールが効かない）。`packages/webview/src/styles.css` で対応済み。
+  - 列メニューのボタンは、ヘッダにマウスを乗せたときだけ操作できる（自動操作で確かめるときは hover が要る）。
+  - 行の高さは `density="compact"`。文字列の列は `textSet`、数値は `numberSet`、日付型と意味型が日付の列は `dateSet`。主キーの列は見出しに 🔑 を付ける。
+- 設定：`sqlEditorTool.maxRows`（既定 10 万、D-11）、`sqlEditorTool.filterOptionsLimit`（既定 1 万、D-16）。設定名とコマンド名の接頭辞 `sqlEditorTool` は仮称（D-13）。名前が決まったら置き換える。

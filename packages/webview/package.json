@@ -1,0 +1,23 @@
+{
+  "name": "@sql-editor-tool/webview",
+  "version": "0.1.0",
+  "private": true,
+  "description": "データビューの画面（React＋spreadsheet-grid）。拡張の Webview に載せる。dev/ はブラウザで確かめるための開発用ページ",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "dev:build": "node dev/build.mjs"
+  },
+  "dependencies": {
+    "@ishibashi0112/spreadsheet-grid": "^0.41.0",
+    "@sql-editor-tool/core": "workspace:*",
+    "@sql-editor-tool/host": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2"
+  }
+}
