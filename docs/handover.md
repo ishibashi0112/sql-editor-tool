@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-24（spreadsheet-grid v0.41.0 で D-12 の依頼が全項目対応・公開されたことを反映。D-14 を追加）
+最終更新：2026-09-24（spreadsheet-grid v0.41.0 の対応を確認し、Webview で使うときの注意点（§11.5）と D-15・D-16 を追加）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -48,7 +48,9 @@
 | D-11 | 取得上限の既定値は 10 万行（設定で変更可） | 確定（O-07） |
 | D-12 | spreadsheet-grid に足りない機能（§11.3）はライブラリ側に追加する。依頼内容は `docs/spreadsheet-grid-requests.md`。ライブラリが対応するまで、アプリは回避策（`filterFn: () => true`）で進める | 確定（O-08）。**対応済み**：v0.41.0 で全項目が入り npm に公開された（2026-09-24、§11.5） |
 | D-13 | 名前が決まるまで、パッケージは仮称 `@sql-editor-tool/*` で作り、決まったら置き換える | 確定 |
-| D-14 | Webview は `@ishibashi0112/spreadsheet-grid` **0.41.0 以上**を使い、回避策（`filterFn: () => true` ＋ `enableGlobalFilter={false}`）は使わない。`manualFiltering` / `manualSorting` / `onFiltersChange` / `onSortChange` / `getFilterOptions` を使う（実装名は提案と違う。読み替えは §11.5 と `docs/spreadsheet-grid-requests.md` の対応表） | 確定 |
+| D-14 | Webview は `@ishibashi0112/spreadsheet-grid` **0.41.0 以上**を使い、回避策（全列の `filterFn: () => true`）は使わない。`manualFiltering` / `manualSorting` / `onFiltersChange` / `onSortChange` / `getFilterOptions` を使う（実装名は提案と違う。読み替えは §11.5 と `docs/spreadsheet-grid-requests.md` の対応表） | 確定 |
+| D-15 | 段階1では、グリッドのグローバルフィルタ（上部バーの検索欄）を使わない（`enableGlobalFilter={false}`）。`manualFiltering` ではグリッドが絞り込まず、core も `globalText` を WHERE にしないので、入力しても何も起きないため。全列の LIKE を OR で繋ぐ案は、インデックスが効かず重いので見送る | 提案 |
+| D-16 | 集合フィルタの候補値は、DB から `SELECT DISTINCT` に件数上限をかけて取得する（§6）。上限の既定値は 1 万件（Excel の候補表示と同じ。設定で変更可）。グリッドの候補リストは仮想化されているので、1 万件でも表示できる | 提案 |
 
 ## 4. 未確定事項
 
@@ -255,3 +257,12 @@ D-12 の依頼（`docs/spreadsheet-grid-requests.md`）は **5 項目すべて v
 - 5（`yyyymmdd`）と 6（ストリーミング）は依頼していない。方針は §11.3 のまま。
 - `getFilterOptions` の候補 SQL（`SELECT DISTINCT` ＋件数上限＋他列条件で絞る）は core 側の残タスク（§10 の 5）。`truncated: true` を返せば popover に「先頭のみ・打ち切り」が出る。
 - `onStateChange` を自前で前回値と比較する処理は不要になった（`onFiltersChange` / `onSortChange` が差分判定済み）。
+
+確認（2026-09-24）：npm の 0.41.0（react / core）の tarball に上の API が入っていること、datasheet-grid で v0.41.0 に追加されたテスト（7 ファイル、75 件）が通ることを確かめた。
+
+Webview で使うときの注意点（ライブラリの不具合ではなく、使う側で気をつけること）：
+
+- **グローバルフィルタ**：既定は `enableGlobalFilter = true` で、上部バーに検索欄が出る。`manualFiltering` では入力しても何も起きないので、`false` にする（D-15）。
+- **候補を打ち切ったときの「全部チェック」**：表示中の候補を全部チェックすると、グリッドはフィルタの解除として扱う（`filterPopoverCommands.ts` の `commitSetFilterSelection`。選んだ数が候補数以上なら解除）。候補を打ち切っていると、画面に出ていない値の行まで結果に入る。上限は 1 万件（D-16）なので、手で全部チェックすることはまずなく、実害は小さいと見ている。問題になったら、打ち切り時は解除にしないようライブラリに相談する。
+  - 全選択の状態から外していく操作は `exclude`（`NOT IN`）になり、候補の外の値は残る。これは依頼どおりの動き。
+- **候補の検索欄**：検索するのは取得済みの候補だけで、DB に再取得はしない。値の種類が多い文字列の列では、条件（含む・前方一致など）で絞れるように、文字列の列は `textSet`（条件＋値の選択）にしておく（提案）。
