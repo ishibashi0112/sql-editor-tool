@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-23（Claude Code へ移行後、O-04 の確認、O-06〜O-08 の決定、core の WHERE 生成の実装を反映）
+最終更新：2026-09-24（spreadsheet-grid v0.41.0 で D-12 の依頼が全項目対応・公開されたことを反映。D-14 を追加）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -46,8 +46,9 @@
 | D-09 | Hayami の D-14 セキュリティ原則を引き継ぐ（§8） | 提案 |
 | D-10 | コーディング規約は Hayami 寄り：pnpm モノレポ、Biome（2 スペース、ダブルクォート、recommended）、TS strict＋`noUncheckedIndexedAccess`＋`exactOptionalPropertyTypes`＋`verbatimModuleSyntax`、`.gitattributes` で LF 固定、日本語コメント。テストは vitest（拡張は Bun ではなく VS Code 内蔵の Node で動くため） | 確定（O-06） |
 | D-11 | 取得上限の既定値は 10 万行（設定で変更可） | 確定（O-07） |
-| D-12 | spreadsheet-grid に足りない機能（§11.3）はライブラリ側に追加する。依頼内容は `docs/spreadsheet-grid-requests.md`。ライブラリが対応するまで、アプリは回避策（`filterFn: () => true`）で進める | 確定（O-08） |
+| D-12 | spreadsheet-grid に足りない機能（§11.3）はライブラリ側に追加する。依頼内容は `docs/spreadsheet-grid-requests.md`。ライブラリが対応するまで、アプリは回避策（`filterFn: () => true`）で進める | 確定（O-08）。**対応済み**：v0.41.0 で全項目が入り npm に公開された（2026-09-24、§11.5） |
 | D-13 | 名前が決まるまで、パッケージは仮称 `@sql-editor-tool/*` で作り、決まったら置き換える | 確定 |
+| D-14 | Webview は `@ishibashi0112/spreadsheet-grid` **0.41.0 以上**を使い、回避策（`filterFn: () => true` ＋ `enableGlobalFilter={false}`）は使わない。`manualFiltering` / `manualSorting` / `onFiltersChange` / `onSortChange` / `getFilterOptions` を使う（実装名は提案と違う。読み替えは §11.5 と `docs/spreadsheet-grid-requests.md` の対応表） | 確定 |
 
 ## 4. 未確定事項
 
@@ -56,7 +57,7 @@
 | O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 未確定 |
 | O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 未確定 |
 | O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 未確定 |
-| O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：**ない**（§11）。対応は O-08 |
+| O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：v0.40.0 には**ない**（§11）→ v0.41.0 で `manualFiltering` として追加された（§11.5、D-14） |
 | O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
 | O-06 | コーディング規約（Biome、TS strict、改行コード、日本語コメントなど）。既存の spreadsheet-grid / Hayami に合わせるか | ユーザーが決定 | 解決（D-10） |
 | O-07 | 取得上限の既定値。提案は 10 万行（設定で変更可） | ユーザーが決定 | 解決（D-11） |
@@ -171,10 +172,12 @@ packages/
 4. ~~モノレポの雛形を作る。~~ 済み（仮称 `@sql-editor-tool/*`、D-13）。O-05（名前）は未確定のまま
 5. ~~core から実装する：フィルタ記述子 → WHERE 句（SQL Server / Oracle の両方言）を、単体テスト付きで作る。~~ 済み（`packages/core`、SELECT 文とリテラル版を含む）
    - 残り：セットフィルタの候補値の SQL（`SELECT DISTINCT` ＋件数上限。ほかの列の条件で絞る）、段階2のベースSQL の包み込み
-   - spreadsheet-grid への機能追加（D-12）は datasheet-grid リポジトリで進める
-6. ドライバのアダプタ、拡張本体、Webview の順に進める。
+   - ~~spreadsheet-grid への機能追加（D-12）は datasheet-grid リポジトリで進める~~ 済み（v0.41.0、§11.5）
+6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
 
 ## 11. spreadsheet-grid の調査結果（O-04、v0.40.0）
+
+> §11.1〜11.4 は **v0.40.0 時点**の調査。§11.3 の不足は v0.41.0 で解消済み（§11.5）。
 
 調べた対象はローカルの `datasheet-grid` リポジトリ（`packages/core` = `@ishibashi0112/spreadsheet-grid-core`、`packages/react` = `@ishibashi0112/spreadsheet-grid`）。公開型は `packages/core/src/model/gridTypes.core.ts` にある。
 
@@ -229,10 +232,26 @@ core のフィルタ記述子はこの形に合わせる。core はグリッド�
 
 ### 11.4 その他
 
-- npm に公開済み（`@ishibashi0112/spreadsheet-grid@0.40.0`）。ESM と CJS の両方を配布している。
+- npm に公開済み（調査時 `@ishibashi0112/spreadsheet-grid@0.40.0`。現在は 0.41.0 が最新）。ESM と CJS の両方を配布している。
 - peer 依存は React 19。
 - CSS は `import '@ishibashi0112/spreadsheet-grid/style.css'` で明示的に読み込む。
 - SSRM をアダプタとして使う案（`getRows` で SQL を実行し、N 行をキャッシュして切り出して返す）では、グリッドがローカルで絞り込みもソートもしなくなる。ただし次の理由で採らない。
   - フィルタ変更から 300ms 後に `getRows` が呼ばれるので、「Enter で初めて DB に投げる」仕様と合わない。
   - 全件取得後にクライアント側でソートする使い方ができない。
   - D-03 とも合わない。
+
+### 11.5 v0.41.0 での対応状況（2026-09-24）
+
+D-12 の依頼（`docs/spreadsheet-grid-requests.md`）は **5 項目すべて v0.41.0 で対応され、npm に公開済み**（datasheet-grid の PR #4 / #5 / #6）。公開 API は追加のみで、既定値では v0.40.0 と同じ経路を通る。実装名は提案と違うので読み替える。
+
+| §11.3 の不足 | v0.41.0 |
+|---|---|
+| 1. グリッド自身の絞り込みを止められない | `manualFiltering`（boolean、既定 false）。列フィルタもグローバルフィルタも評価しない。回避策は不要 |
+| 2. 集合フィルタの候補値 | グリッド prop `getFilterOptions({ columnKey, column, columnFilters（自列を除く他列）, globalText, signal }) => Promise<{ options, truncated? }>`。開くたびに取得・閉じると abort・ライブラリはキャッシュしない。読み込み中 / 失敗（再試行）/ 打ち切りの表示あり。反転（exclude）可 |
+| 3. ソート | `manualSorting`（boolean、既定 false）。再マウント不要で切り替え可。`enableSorting={false}` で既存ソートが外れない件は既存仕様のまま |
+| 4. 日本語入力 | 修正済み（変換中の Enter / Escape を無視。textSet の条件値は `compositionend` で 1 回だけ送る） |
+| （便利機能）変更通知 | `onFiltersChange(filters)` / `onSortChange(sort)`。該当スライスが実際に変化したときだけ発火 |
+
+- 5（`yyyymmdd`）と 6（ストリーミング）は依頼していない。方針は §11.3 のまま。
+- `getFilterOptions` の候補 SQL（`SELECT DISTINCT` ＋件数上限＋他列条件で絞る）は core 側の残タスク（§10 の 5）。`truncated: true` を返せば popover に「先頭のみ・打ち切り」が出る。
+- `onStateChange` を自前で前回値と比較する処理は不要になった（`onFiltersChange` / `onSortChange` が差分判定済み）。

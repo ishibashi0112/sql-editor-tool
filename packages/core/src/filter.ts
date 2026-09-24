@@ -1,4 +1,4 @@
-// フィルタ記述子。spreadsheet-grid（v0.40.0）の ColumnFilterValue / GridSortEntry と同じ形にしてあり、
+// フィルタ記述子。spreadsheet-grid（v0.40.0。v0.41.0 でも同形）の ColumnFilterValue / GridSortEntry と同じ形にしてあり、
 // グリッドが通知する値をそのまま渡せる。core はグリッドに依存しないので、型はここで定義する。
 // 各種類の意味は docs/handover.md §11.1
 

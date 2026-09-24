@@ -4,6 +4,36 @@
 
 この文書は、datasheet-grid リポジトリで作業するときに渡すためのものです。決定の経緯は `docs/handover.md` の D-12 と §11 にあります。API の名前や形はあくまで提案です。ライブラリの既存の設計や命名に合わせて変えてください。
 
+## 対応状況（2026-09-24 追記）
+
+**全項目が `@ishibashi0112/spreadsheet-grid@0.41.0`（core も 0.41.0）で対応済み。npm に公開済み。** 以下の依頼本文は当時の提案のまま残す。実装された API 名は提案と一部違うので、アプリ側はこの表で読み替える。公開 API は追加のみで、既存 API と既定の挙動は変わっていない（既定値のままなら v0.40.0 と同じ経路を通る）。
+
+| 依頼 | 実装（v0.41.0） | 補足 |
+|---|---|---|
+| 1. IME | 修正済み（prop なし） | text / date / custom 入力と条件入力は変換中の Enter / Escape を無視する。numberSet / textSet の条件値は変換中は表示だけ更新し、`compositionend` で 1 回だけ記述子を送る。 |
+| 2. 手動フィルタモード（提案名 `columnFilterMode`） | `manualFiltering?: boolean`（既定 `false`） | 列フィルタもグローバルフィルタも評価しない（number 列の Float64 前計算も走らない）。UI と `GridState.filters` の通知は従来どおり。`rows` が 0 件でフィルタが載っていれば `noMatchingRowsText` が出る。serverSide では無視。 |
+| 3. 候補の非同期取得 | `getFilterOptions?: (params) => Promise<{ options; truncated? }>`（グリッド prop） | 引数は `{ columnKey, column, columnFilters（自列を除く他列の有効フィルタ）, globalText, signal }`。popover を開くたびに呼ばれ、閉じる / 列切替で `signal` が abort される。ライブラリはキャッシュしない（必要ならアプリ側で `columnKey` ＋他列フィルタをキーに Promise を保持する）。読み込み中 / 失敗（再試行ボタン）/ 打ち切り（「先頭のみ・打ち切り」の注記）の表示はライブラリ側。反転（exclude）可。優先順位は `column.filterOptions`（静的）＞ `getFilterOptions` ＞ rows 自動収集。対象は select / set / numberSet / textSet / dateSet。複合列は取得中も条件欄が使える。検索欄は取得済み候補の中だけを探す（検索文字列をサーバへ渡す再取得は無い）。 |
+| 4. 手動ソートモード（提案名 `sortMode`） | `manualSorting?: boolean`（既定 `false`） | 並べ替えない。UI と `GridState.sort` の通知は従来どおり。再マウント不要で切り替え可（`false` へ戻すと即座にクライアントソートがかかる）。手動ソート中は行ドラッグ / `labelRow.sortMode` は「並べ替えていない」扱い。`enableSorting={false}` で既存ソートが外れない件は既存仕様のまま（`applyState` で `sort: []`）。 |
+| 5. 変更通知 | `onFiltersChange?: (filters: GridFilterState) => void` / `onSortChange?: (sort: GridSortState) => void` | 該当スライスが構造的に変化したときだけ複製を渡して呼ばれる。初回マウント非発火 / 同値非発火 / `applyState` でも発火（`onStateChange` と同じ規約）。ドラッグ中の保留は無い。 |
+
+アプリ側での使い方（想定）:
+
+```tsx
+<SpreadsheetGrid
+  rows={rowsFromDb}
+  columns={columns}          // filterFn: () => true の回避策は不要
+  manualFiltering
+  manualSorting={reachedLimit}   // 上限で打ち切ったときだけ ORDER BY をサーバへ
+  onFiltersChange={(filters) => setWhere(buildWhere(filters.columnFilters))}
+  onSortChange={(sort) => setOrderBy(buildOrderBy(sort))}
+  getFilterOptions={({ columnKey, columnFilters, signal }) => fetchDistinct(columnKey, columnFilters, signal)}
+/>
+```
+
+`getFilterOptions` の `value` は記述子の `values` にそのまま載る文字列。NULL は `''`（ラベルは `'(空白)'` など）、dateSet 列は `'YYYY-MM-DD'` を渡す。
+
+参考: datasheet-grid の PR #4（項目 1・2・4・5）/ PR #5（項目 3）/ PR #6（0.41.0）。ガイドは website の「ソートとフィルター」の「絞り込み / 並べ替えを外部に委ねる」「候補を非同期に供給する」節。
+
 ## 背景
 
 VS Code 拡張の DB 検索ツールで、spreadsheet-grid を使います。構成は「条件はサーバー（SQL の WHERE 句）、行はクライアント（上限つきで全件取得）」です（SSRM は使いません）。
