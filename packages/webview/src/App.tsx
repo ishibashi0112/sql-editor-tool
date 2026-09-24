@@ -115,24 +115,9 @@ export function App({ api }: { api: HostApi }) {
   }, [api, flushRows]);
 
   const running = query.status === "running";
+  // DB に投げるのは実行ボタンを押したときだけ（D-18）。条件を変えている間は SQL プレビューだけ更新する
   const execute = useCallback(() => api.post({ type: "execute" }), [api]);
   const cancel = useCallback(() => api.post({ type: "cancel" }), [api]);
-
-  // Ctrl+Enter（Mac は Cmd+Enter）で実行する。Enter だけだとセルの移動やフィルタの確定と重なる
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Enter" &&
-        (event.ctrlKey || event.metaKey) &&
-        !event.isComposing
-      ) {
-        event.preventDefault();
-        execute();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [execute]);
 
   const postConditions = useCallback(() => {
     api.post({
@@ -211,12 +196,7 @@ export function App({ api }: { api: HostApi }) {
     <div className="app">
       <header className="toolbar">
         <strong className="title">{view.title}</strong>
-        <button
-          type="button"
-          onClick={execute}
-          disabled={!preview?.ok}
-          title="Ctrl+Enter"
-        >
+        <button type="button" onClick={execute} disabled={!preview?.ok}>
           ▶ 実行
         </button>
         <button
