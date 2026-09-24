@@ -5,7 +5,10 @@ import type { ColumnInfo } from "./schema";
 import { buildWhere } from "./select";
 import { columns } from "./testColumns";
 
-const table = { schema: "APP", name: "ORDERS" };
+const source = {
+  kind: "table",
+  table: { schema: "APP", name: "ORDERS" },
+} as const;
 
 function column(name: string): ColumnInfo {
   const found = columns.find((c) => c.name === name);
@@ -27,7 +30,7 @@ describe("buildFilterOptionsQuery", () => {
   test("SQL Server：ほかの列の条件で絞り、上限 + 1 件を TOP で取る", () => {
     const q = buildFilterOptionsQuery({
       dialect: "mssql",
-      table,
+      source,
       columns,
       columnKey: "CUST_CD",
       filters,
@@ -50,7 +53,7 @@ describe("buildFilterOptionsQuery", () => {
   test("Oracle：空欄を先頭にして、FETCH FIRST で取る", () => {
     const q = buildFilterOptionsQuery({
       dialect: "oracle",
-      table,
+      source,
       columns,
       columnKey: "CUST_CD",
       filters,
@@ -71,7 +74,7 @@ describe("buildFilterOptionsQuery", () => {
   test("条件がなければ WHERE を付けない", () => {
     const q = buildFilterOptionsQuery({
       dialect: "mssql",
-      table,
+      source,
       columns,
       columnKey: "QTY",
       limit: 10,
@@ -86,7 +89,7 @@ describe("buildFilterOptionsQuery", () => {
   });
 
   test("日付型の列は、時刻を切り捨てた yyyymmdd の文字列で取る", () => {
-    const input = { table, columns, columnKey: "UPDATED_AT", limit: 10 };
+    const input = { source, columns, columnKey: "UPDATED_AT", limit: 10 };
     expect(
       buildFilterOptionsQuery({ ...input, dialect: "mssql" }).sql.split(
         "\n",
@@ -104,7 +107,7 @@ describe("buildFilterOptionsQuery", () => {
   });
 
   test("値の選択に使えない型、未知の列、不正な上限はエラー", () => {
-    const base = { dialect: "mssql" as const, table, columns, limit: 10 };
+    const base = { dialect: "mssql" as const, source, columns, limit: 10 };
     expect(() =>
       buildFilterOptionsQuery({ ...base, columnKey: "NOTE" }),
     ).toThrow("値の選択で絞り込めません");

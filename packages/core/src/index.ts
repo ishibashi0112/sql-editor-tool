@@ -1,3 +1,4 @@
+export { checkBaseColumns } from "./baseSql";
 export {
   normalizeDateKey,
   resolveBuiltinDatePreset,
@@ -29,6 +30,7 @@ export {
 export type {
   ColumnInfo,
   ColumnType,
+  QuerySource,
   SemanticType,
   TableRef,
 } from "./schema";

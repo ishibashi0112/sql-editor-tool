@@ -1,9 +1,10 @@
 // 段階1（単一テーブル／ビュー）の SELECT 文を組み立てる
 
+import { fromBaseSql } from "./baseSql";
 import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue, SortEntry } from "./filter";
-import type { ColumnInfo, TableRef } from "./schema";
+import type { ColumnInfo, QuerySource } from "./schema";
 import {
   type BoundParam,
   join,
@@ -32,7 +33,7 @@ export type WhereInput = ConditionOptions & {
 
 export type SelectInput = ConditionOptions & {
   dialect: DialectName;
-  table: TableRef;
+  source: QuerySource;
   columns: readonly ColumnInfo[];
   filters?: Readonly<Record<string, ColumnFilterValue>>;
   sort?: readonly SortEntry[];
@@ -40,7 +41,7 @@ export type SelectInput = ConditionOptions & {
   limit?: number;
 };
 
-// finish / fromTable / checkLimit は候補値の SQL（filterOptions.ts）でも使う
+// finish / fromSource / checkLimit は候補値の SQL（filterOptions.ts）でも使う
 
 export function finish(fragment: Sql, dialect: Dialect): BuiltQuery {
   return {
@@ -74,11 +75,13 @@ export function buildSelect(input: SelectInput): BuiltQuery {
   );
   const limit = input.limit === undefined ? null : limitParam(input.limit);
 
+  const source = fromSource(dialect, input.source);
   const lines: Sql[] = [
+    ...source.withClause,
     dialect.name === "mssql" && limit
       ? sql`SELECT TOP (${limit}) *`
       : sql`SELECT *`,
-    sql`FROM ${fromTable(dialect, input.table)}`,
+    sql`FROM ${source.from}`,
   ];
   if (conditions.length > 0) {
     lines.push(sql`WHERE ${join(conditions, "\n  AND ")}`);
@@ -101,9 +104,21 @@ export function buildSelect(input: SelectInput): BuiltQuery {
   return finish(join(lines, "\n"), dialect);
 }
 
-export function fromTable(dialect: Dialect, table: TableRef): Sql {
+/** FROM に書く対象と、その前に置く WITH 句（SQL Server のベースSQL のみ。なければ空） */
+export function fromSource(
+  dialect: Dialect,
+  source: QuerySource,
+): { withClause: Sql[]; from: Sql } {
+  if (source.kind === "baseSql") {
+    const base = fromBaseSql(dialect, source.sql);
+    return {
+      withClause: base.withClause ? [base.withClause] : [],
+      from: base.from,
+    };
+  }
   const q = (name: string) => dialect.quoteIdent(name);
-  return raw(`${q(table.schema)}.${q(table.name)}`);
+  const { schema, name } = source.table;
+  return { withClause: [], from: raw(`${q(schema)}.${q(name)}`) };
 }
 
 export function checkLimit(limit: number, what: string): number {

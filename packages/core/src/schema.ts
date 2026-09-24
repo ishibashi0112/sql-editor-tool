@@ -33,3 +33,8 @@ export type TableRef = {
   schema: string;
   name: string;
 };
+
+/** 問い合わせの対象。段階1はテーブル／ビュー、段階2は利用者が書いたベースSQL */
+export type QuerySource =
+  | { kind: "table"; table: TableRef }
+  | { kind: "baseSql"; sql: string };

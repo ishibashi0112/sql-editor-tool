@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-24（spreadsheet-grid v0.41.0 の対応を確認し、Webview で使うときの注意点（§11.5）と D-15・D-16 を追加。集合フィルタの候補値の SQL を core に実装）
+最終更新：2026-09-24（段階2のベースSQL の包み込みを core に実装し、D-17 を追加）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -51,6 +51,7 @@
 | D-14 | Webview は `@ishibashi0112/spreadsheet-grid` **0.41.0 以上**を使い、回避策（全列の `filterFn: () => true`）は使わない。`manualFiltering` / `manualSorting` / `onFiltersChange` / `onSortChange` / `getFilterOptions` を使う（実装名は提案と違う。読み替えは §11.5 と `docs/spreadsheet-grid-requests.md` の対応表） | 確定 |
 | D-15 | 段階1では、グリッドのグローバルフィルタ（上部バーの検索欄）を使わない（`enableGlobalFilter={false}`）。`manualFiltering` ではグリッドが絞り込まず、core も `globalText` を WHERE にしないので、入力しても何も起きないため。全列の LIKE を OR で繋ぐ案は、インデックスが効かず重いので見送る | 提案 |
 | D-16 | 集合フィルタの候補値は、DB から `SELECT DISTINCT` に件数上限をかけて取得する（§6）。上限の既定値は 1 万件（Excel の候補表示と同じ。設定で変更可）。グリッドの候補リストは仮想化されているので、1 万件でも表示できる | 提案 |
+| D-17 | ベースSQL は「1 つの SELECT / WITH 文で、バインド変数を含まないもの」に限る。SQL Server では、最上位の ORDER BY は TOP か OFFSET があるときだけ使える（派生テーブルの制約）。並べ替えは列見出しで指定する（§5 段階2） | 提案 |
 
 ## 4. 未確定事項
 
@@ -92,6 +93,12 @@
 - ベースSQL 内で列名が重複すると外側の SELECT でエラーになるので、事前に検出して別名を促す。
 - 列のメタデータは、SQL Server が `sp_describe_first_result_set`（Hayami で実績あり）、Oracle が 0 件取得での記述情報から得る想定。
 - よく使うベースSQL は名前付きで保存し、「自分専用のビュー」として使い回せるようにする。
+- 実装（core、`baseSql.ts`）：`buildSelect` / `buildFilterOptionsQuery` の `source` に `{ kind: "baseSql", sql }` を渡す。`SELECT * FROM (\n<ベースSQL>\n) base_query` の形にする（別名には AS を付けない）。
+  - SQL Server は派生テーブルの中に WITH を書けないので、CTE の並びを外側の SELECT の前に出す。外に出した部分は括弧で守られないので、「名前 [(列…)] AS (…) [, …] SELECT」の並びを厳密に確かめる（T-SQL はセミコロンなしで文を続けられるため）。Oracle は WITH ごと中に入れる。
+  - 次の場合はエラーにする（D-17）：空、複数の文（末尾のセミコロンは取り除く）、SELECT / WITH 以外で始まる文、バインド変数（SQL Server の `@x`、Oracle の `:x`）、最上位の `INTO` と `FOR UPDATE`、SQL Server で TOP も OFFSET もない最上位の ORDER BY。
+  - 判定には簡易な字句解析を使う。文字列、`N'...'`、Oracle の `q'[...]'`、引用符つきの名前（`"..."`、SQL Server の `[...]`）、コメント（SQL Server は入れ子に対応）の中の記号は、構文として扱わない。
+  - 列名の重複と名前のない列は `checkBaseColumns` で検出する。メタデータを取得した後に呼ぶ。SQL Server では大文字小文字を区別せず、Oracle では区別して比べる。
+  - 読み取り専用を守る仕組みは、派生テーブルで包むこと（中には問い合わせしか書けない）。字句の検査は、DB のエラーより分かりやすいメッセージを出すためのもの。さらに守るなら、ドライバの段階で Oracle は `SET TRANSACTION READ ONLY` を使い、両方の DB で参照権限だけのアカウントを使う（ドライバの実装時に検討する）。
 
 ### 段階3：関連テーブルの条件で絞る（必要になったら）
 
@@ -134,7 +141,7 @@
   - 結果は `toFilterOptions` で候補にする。NULL と空文字は `''`（ラベル `（空白）`）、日付は `'YYYY-MM-DD'`。その値をそのまま WHERE の生成に渡せる。
   - 列に索引がない大きいテーブルでは、`DISTINCT` が全件走査になる。所要時間は会社 PC で確かめる。
 - **識別子**：列名・テーブル名は常に引用符で囲む（SQL Server は `[...]`、Oracle は `"..."`）。予約語や日本語の列名でも壊れないようにするため。
-- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`filterOptions.ts`（集合フィルタの候補値）、`dialect.ts`（方言の差）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
+- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`filterOptions.ts`（集合フィルタの候補値）、`baseSql.ts`（段階2のベースSQL）、`dialect.ts`（方言の差）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
 
 ## 7. アーキテクチャ（提案）
 
@@ -180,7 +187,7 @@ packages/
 4. ~~モノレポの雛形を作る。~~ 済み（仮称 `@sql-editor-tool/*`、D-13）。O-05（名前）は未確定のまま
 5. ~~core から実装する：フィルタ記述子 → WHERE 句（SQL Server / Oracle の両方言）を、単体テスト付きで作る。~~ 済み（`packages/core`、SELECT 文とリテラル版を含む）
    - ~~セットフィルタの候補値の SQL（`SELECT DISTINCT` ＋件数上限。ほかの列の条件で絞る）~~ 済み（`filterOptions.ts`、§6）
-   - 残り：段階2のベースSQL の包み込み
+   - ~~段階2のベースSQL の包み込み~~ 済み（`baseSql.ts`、§5 段階2、D-17）
    - ~~spreadsheet-grid への機能追加（D-12）は datasheet-grid リポジトリで進める~~ 済み（v0.41.0、§11.5）
 6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
 

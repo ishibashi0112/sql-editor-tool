@@ -5,8 +5,8 @@ import { ymdToDateKey } from "./dateKey";
 import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue } from "./filter";
-import type { ColumnInfo, TableRef } from "./schema";
-import { type BuiltQuery, checkLimit, finish, fromTable } from "./select";
+import type { ColumnInfo, QuerySource } from "./schema";
+import { type BuiltQuery, checkLimit, finish, fromSource } from "./select";
 import { join, Param, raw, type Sql, sql } from "./sql";
 import { buildConditions, type ConditionOptions } from "./where";
 
@@ -22,7 +22,7 @@ export type FilterOptionsResult = {
 
 export type FilterOptionsQueryInput = ConditionOptions & {
   dialect: DialectName;
-  table: TableRef;
+  source: QuerySource;
   columns: readonly ColumnInfo[];
   /** 候補を取る列 */
   columnKey: string;
@@ -60,11 +60,13 @@ export function buildFilterOptionsQuery(
   const value = optionValueExpr(dialect, column);
   const alias = raw(dialect.quoteIdent("OPTION_VALUE"));
 
+  const source = fromSource(dialect, input.source);
   const lines: Sql[] = [
+    ...source.withClause,
     dialect.name === "mssql"
       ? sql`SELECT DISTINCT TOP (${limit}) ${value} AS ${alias}`
       : sql`SELECT DISTINCT ${value} AS ${alias}`,
-    sql`FROM ${fromTable(dialect, input.table)}`,
+    sql`FROM ${source.from}`,
   ];
   if (conditions.length > 0) {
     lines.push(sql`WHERE ${join(conditions, "\n  AND ")}`);

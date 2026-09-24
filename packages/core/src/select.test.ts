@@ -3,7 +3,10 @@ import type { ColumnFilterValue, SortEntry } from "./filter";
 import { buildSelect } from "./select";
 import { columns } from "./testColumns";
 
-const table = { schema: "APP", name: "ORDERS" };
+const source = {
+  kind: "table",
+  table: { schema: "APP", name: "ORDERS" },
+} as const;
 const filters: Record<string, ColumnFilterValue> = {
   ORDER_NO: { kind: "set", values: ["A", "B"] },
   QTY: {
@@ -21,7 +24,7 @@ describe("buildSelect", () => {
   test("SQL Server：TOP で件数を制限する", () => {
     const q = buildSelect({
       dialect: "mssql",
-      table,
+      source,
       columns,
       filters,
       sort,
@@ -47,7 +50,7 @@ describe("buildSelect", () => {
   test("Oracle：FETCH FIRST で件数を制限する", () => {
     const q = buildSelect({
       dialect: "oracle",
-      table,
+      source,
       columns,
       filters,
       sort,
@@ -76,7 +79,7 @@ describe("buildSelect", () => {
   });
 
   test("条件・並び順・件数制限がなければ最小の形", () => {
-    const q = buildSelect({ dialect: "mssql", table, columns });
+    const q = buildSelect({ dialect: "mssql", source, columns });
     expect(q.sql).toBe("SELECT *\nFROM [APP].[ORDERS]");
     expect(q.params).toEqual([]);
   });
@@ -85,14 +88,14 @@ describe("buildSelect", () => {
     expect(
       buildSelect({
         dialect: "mssql",
-        table: { schema: "dbo", name: "A]B" },
+        source: { kind: "table", table: { schema: "dbo", name: "A]B" } },
         columns,
       }).sql,
     ).toBe("SELECT *\nFROM [dbo].[A]]B]");
     expect(
       buildSelect({
         dialect: "oracle",
-        table: { schema: "APP", name: 'A"B' },
+        source: { kind: "table", table: { schema: "APP", name: 'A"B' } },
         columns,
       }).sql,
     ).toBe('SELECT *\nFROM "APP"."A""B"');
@@ -101,7 +104,7 @@ describe("buildSelect", () => {
   test("件数の上限は 1 以上の整数", () => {
     for (const limit of [0, -1, 1.5, Number.NaN]) {
       expect(() =>
-        buildSelect({ dialect: "mssql", table, columns, limit }),
+        buildSelect({ dialect: "mssql", source, columns, limit }),
       ).toThrow("1 以上の整数");
     }
   });
@@ -110,7 +113,7 @@ describe("buildSelect", () => {
     expect(() =>
       buildSelect({
         dialect: "mssql",
-        table,
+        source,
         columns,
         sort: [{ columnKey: "NO_SUCH", direction: "asc" }],
       }),
