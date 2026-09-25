@@ -35,6 +35,13 @@ Oracle でDATE型の列が見つかった場合は、`sql/oracle/manual/date_tim
 node oracle-run.mjs sql/oracle/manual/date_time_usage.sql
 ```
 
+文字列で日付を持っていそうな列（Oracle の VARCHAR2(10) / (20)、SQL Server の nvarchar(10) / (14) / (17) や numeric の `〜_DT` など）は、`manual/string_date_format.sql` の `<TABLE>` と `<COLUMN>` を書き換えて実行し、書式を確認します（O-10）。値そのものは出さず、数字を `9` に置き換えた形（`9999/99/99` など）ごとの件数だけを出します。
+
+```
+node oracle-run.mjs sql/oracle/manual/string_date_format.sql
+node mssql-run.mjs sql/mssql/manual/string_date_format.sql
+```
+
 結果は画面に先頭50行が表示され、全件が `out/` にCSV（Excelで開けるBOM付きUTF-8）で保存されます。
 
 ## 安全のための仕組み

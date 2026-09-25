@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-24（D-15〜D-20 をユーザーが確定。D-18 は実行ボタンのみに変更し、Ctrl+Enter を外した）
+最終更新：2026-09-25（会社 PC での `verify/` の SQL の結果を §13 に記録。O-01〜O-03、O-09 を更新し、O-10 を追加）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -20,12 +20,12 @@
 
 | 項目 | 内容 | 状態 |
 |---|---|---|
-| SQL Server | おそらく 2012 | 未確定（O-03） |
-| Oracle | 19c と記載されていた記憶 | 未確定（O-02） |
-| 外部キー | 社内 DB に外部キー制約を使っているテーブルはない認識 | 確定 |
-| 主キー | 複合主キーのテーブルが多い | 確定 |
-| 日付の持ち方（SQL Server） | `yyyymmdd` 形式の文字列（Hayami の知見） | 確定 |
-| 日付の持ち方（Oracle） | DATE 型だった気がするが自信なし | 未確定（O-01） |
+| SQL Server | 2012 SP2（11.0.5058）Standard Edition。照合順序はサーバー・DB とも `Japanese_CI_AS` | 確定（§13）。Node.js からの接続は未確認（O-03） |
+| Oracle | 19c（19.19）Standard Edition 2。文字コード `JA16SJIS`、`NLS_LENGTH_SEMANTICS = BYTE` | 確定（§13）。Thin モードでの接続は未確認（O-02） |
+| 外部キー | SQL Server は 0 件。Oracle は 7 件あった（少数なので、関係の手動登録（段階3）の方針は変えない） | 確定（§13） |
+| 主キー | 複合主キーのテーブルが多い（SQL Server は最大 10 列、Oracle は最大 16 列）。主キーのないテーブルも多い（SQL Server 305、Oracle 42。多くはバックアップや作業用） | 確定（§13） |
+| 日付の持ち方（SQL Server） | `yyyymmdd` 形式の文字列（Hayami の知見）が主。ほかに `date` / `datetime` 型、長さ 10・14・17 の文字列、numeric もある | 確定（§13）。`yyyymmdd` 以外の書式は O-10 |
+| 日付の持ち方（Oracle） | DATE 型（96 列）と VARCHAR2(10) / (20) の文字列が混在。長さ 8 の文字列はない | 一部確定（§13）。時刻の使用は O-01、文字列の書式は O-10 |
 | vsix | 会社 PC の VS Code に自作拡張をインストールできることを確認済み | 確定 |
 | ネットワーク | DB は社内ネットワークからのみ到達可能。Mac からは接続できない | 確定 |
 
@@ -60,15 +60,17 @@
 
 | No | 内容 | 確認方法 | 状態 |
 |---|---|---|---|
-| O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 未確定 |
-| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 未確定 |
-| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 未確定 |
+| O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 一部確認（§13）：両方ある（DATE 96 列、日付らしい VARCHAR2(10) / (20) が約 220 列）。DATE の時刻の使用は未確認（`manual/date_time_usage.sql` を代表的な列で実行する） |
+| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。今回の結果は A5 で実行したもの（§13）なので、`node oracle-run.mjs` を 1 回実行して「接続OK（Thinモード: true）」を確かめる |
+| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 一部確認：バージョンは 2012 SP2（§13）。Node.js からの接続は未確認。`node mssql-run.mjs` を 1 回実行する |
 | O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：v0.40.0 には**ない**（§11）→ v0.41.0 で `manualFiltering` として追加された（§11.5、D-14） |
 | O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
 | O-06 | コーディング規約（Biome、TS strict、改行コード、日本語コメントなど）。既存の spreadsheet-grid / Hayami に合わせるか | ユーザーが決定 | 解決（D-10） |
 | O-07 | 取得上限の既定値。提案は 10 万行（設定で変更可） | ユーザーが決定 | 解決（D-11） |
 | O-08 | spreadsheet-grid に足りない機能（§11.3）を、ライブラリ側に追加するか、アプリ側の回避策で済ませるか | ユーザーが決定 | 解決（D-12） |
-| O-09 | 文字列比較の細部。(1) 大文字小文字：グリッドのクライアント側判定は区別しない。SQL Server は照合順序次第（多くは区別しない）、Oracle は既定で区別する。Oracle で区別しないようにすると `UPPER(col)` でインデックスが効かなくなる。(2) 空白だけの値：グリッドは空欄として扱う。SQL Server の `col = ''` は末尾空白を無視するので一致するが、Oracle の `col IS NULL` は一致しない（CHAR 列に空白を入れて「空」としている運用がないか）。(3) Oracle の CHAR 列の `RPAD(:p, 列長)`：RPAD の長さは表示幅なので、全角文字を含む値や BYTE 単位の列長で合わない可能性がある。node-oracledb で `DB_TYPE_CHAR` としてバインドする案もある | 会社 PC で確認（O-03 の照合順序、`verify/` の型の分布、CHAR 列での実際の比較）。(1) はその結果を見てユーザーが決定 | 未確定 |
+| O-09 | 文字列比較の細部。(1) 大文字小文字：グリッドのクライアント側判定は区別しない。SQL Server は照合順序次第（多くは区別しない）、Oracle は既定で区別する。Oracle で区別しないようにすると `UPPER(col)` でインデックスが効かなくなる。(2) 空白だけの値：グリッドは空欄として扱う。SQL Server の `col = ''` は末尾空白を無視するので一致するが、Oracle の `col IS NULL` は一致しない（CHAR 列に空白を入れて「空」としている運用がないか）。(3) Oracle の CHAR 列の `RPAD(:p, 列長)`：RPAD の長さは表示幅なので、全角文字を含む値や BYTE 単位の列長で合わない可能性がある。node-oracledb で `DB_TYPE_CHAR` としてバインドする案もある | 会社 PC で確認（O-03 の照合順序、`verify/` の型の分布、CHAR 列での実際の比較）。(1) はその結果を見てユーザーが決定 | 一部確認（§13）：SQL Server は `Japanese_CI_AS`（大文字小文字・全角半角・ひらがなカタカナを区別しない）。Oracle の CHAR 列は 12 列だけ、NLS_LENGTH_SEMANTICS は BYTE なので、(3) の影響は小さい。(1) の方針は未決定 |
+
+| O-10 | 文字列（と数値）で持つ日付の書式。`yyyymmdd` 以外に、SQL Server の nvarchar(10) / (14) / (17) と numeric の日付らしい列、Oracle の VARCHAR2(10) / (20) がある。区切り付き（`yyyy/mm/dd`）や時刻付き（`yyyymmddhhmmss`）なら、意味型（D-06）に書式を持たせる必要がある | 代表的な列で `verify/sql/*/manual/string_date_format.sql` を実行し、書式（数字を 9 に置き換えた形）を持ち帰る | 未確定 |
 
 ## 5. 段階計画
 
@@ -190,6 +192,7 @@ packages/
 
 1. ~~このキットでリポジトリを初期化する（`git init`、初回コミット）。~~ 済み（2026-09-23。`.gitignore` を追加）
 2. 会社 PC で `verify/` を実行し、O-01〜O-03 を確認する。結果はマスクして持ち帰り、このドキュメントを更新する。
+   - 確認用 SQL の結果は済み（§13）。残り：Node.js からの接続確認（`node mssql-run.mjs` / `node oracle-run.mjs`）、DATE の時刻の使用（O-01）、文字列の日付の書式（O-10）
 3. ~~O-04（spreadsheet-grid の外部フィルタモード）を確認する。~~ 済み（§11）。対応方針は O-08
 4. ~~モノレポの雛形を作る。~~ 済み（仮称 `@sql-editor-tool/*`、D-13）。O-05（名前）は未確定のまま
 5. ~~core から実装する：フィルタ記述子 → WHERE 句（SQL Server / Oracle の両方言）を、単体テスト付きで作る。~~ 済み（`packages/core`、SELECT 文とリテラル版を含む）
@@ -303,3 +306,39 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
   - 列メニューのボタンは、ヘッダにマウスを乗せたときだけ操作できる（自動操作で確かめるときは hover が要る）。
   - 行の高さは `density="compact"`。文字列の列は `textSet`、数値は `numberSet`、日付型と意味型が日付の列は `dateSet`。主キーの列は見出しに 🔑 を付ける。
 - 設定：`sqlEditorTool.maxRows`（既定 10 万、D-11）、`sqlEditorTool.filterOptionsLimit`（既定 1 万、D-16）。設定名とコマンド名の接頭辞 `sqlEditorTool` は仮称（D-13）。名前が決まったら置き換える。
+
+## 13. 会社 PC での確認結果（2026-09-25）
+
+`verify/sql/` の SQL を会社 PC の A5:SQL Mk-2 で実行した結果（ユーザーが Excel で持ち帰ったもの）。ここには集計値だけを記録し、スキーマ名・テーブル名・列名は書かない。Node.js のスクリプト（`mssql-run.mjs` / `oracle-run.mjs`）での接続は、まだ確かめていない。
+
+### 13.1 SQL Server
+
+- バージョン：11.0.5058（2012 SP2）、Standard Edition（64-bit）。照合順序はサーバー・DB とも `Japanese_CI_AS`。
+  - `CI`：大文字小文字を区別しない。`KS` / `WS` がないので、ひらがなとカタカナ、全角と半角も区別しない。`manualFiltering` ではグリッドが判定しないので、この DB の比較がそのまま結果になる。
+- 型の分布（対象スキーマの全列）：nvarchar 39,500、numeric 10,613、varchar 665、datetime 320、date 263、int 252、char 169、smallint 162、decimal 92、その他は少数。
+  - 文字列はほぼ nvarchar。`mssql` の既定（NVARCHAR で送る）でほとんどの列は困らない。§6 の「実際の型でバインドする」は varchar / char の列のために残す。
+- decimal / numeric の精度（10,705 列）：15 桁ちょうどが 7,483 列（大半が (15,4)）、16 桁以上が 377 列（(19,0) 91、(33,23) 56、(21,6) 50 など、最大 38 桁）。
+  - 15 桁までは JavaScript の数値で正しく表せる。16 桁以上の列は文字列で取得する必要がある（§6 の「数値の精度」が実際に要る）。
+- 日付らしい列（型か列名で抽出、4,778 列）：nvarchar(8) 1,816、nvarchar(14) 1,009、datetime 320、nvarchar(17) 292、date 263、numeric 230、nvarchar(10) 199、ほかは少数。
+  - nvarchar(8) は列名の末尾が `_DT` / `_DATE` / `_YMD` などで、`yyyymmdd` の運用と合う。意味型の候補の提案（§5 段階1）は、この形を主に拾えばよい。
+  - nvarchar(14) は更新日時らしい列、nvarchar(17) は `_TIME` で終わる列が多い。numeric には `_DT` で終わる列が 47 ある。書式は O-10 で確かめる。
+- 主キーの列数ごとのテーブル数：1 列 39、2 列 61、3 列 112、4 列 90、5 列 79、6 列 49、7 列 23、8 列 10、9 列 7、10 列 1。主キーのないテーブル 305（名前から見て、半数以上がバックアップ・作業用・月別の控え）。外部キー 0。
+
+### 13.2 Oracle
+
+- バージョン：19.19.0.0.0、Standard Edition 2。文字コード `JA16SJIS`、各国語文字コード `AL16UTF16`、`NLS_LENGTH_SEMANTICS = BYTE`。
+- 型の分布（対象スキーマの全列）：VARCHAR2 6,447、NUMBER 2,013、DATE 96、CHAR 12、NVARCHAR2 8、BLOB 6。
+  - CHAR は 12 列だけなので、`RPAD` の問題（O-09 (3)）の影響は小さい。BLOB は表示の対象外にする（ドライバ実装時に扱いを決める）。
+- NUMBER の精度（2,013 列）：精度の指定がない列が 669（うち 29 は位取り 0）。指定がある列は最大 13 桁。
+  - 精度の指定がない NUMBER は 38 桁まで入りうる。16 桁以上の値が実際にあるかは列次第なので、ドライバでは「精度の指定がない NUMBER は文字列で取得する」か「値を見て判断する」かを決める（ドライバ実装時）。
+- 日付らしい列（型か列名で抽出、360 列）：VARCHAR2(10) 115、VARCHAR2(20) 105、DATE 96、VARCHAR2(50) 17、VARCHAR2(22) 11、NUMBER 10、ほかは少数。長さ 8 の文字列はない。
+  - SQL Server と違い、Oracle では `yyyymmdd` の運用は見当たらない。VARCHAR2(10) は `yyyy/mm/dd`、VARCHAR2(20) は日時の文字列の可能性がある（O-10）。
+- 主キーの列数ごとのテーブル数：1 列 83、2 列 120、3 列 86、4 列 47、5 列 19、6 列 29、7 列 8、8 列 3、9 列 2、11 列 2、15 列 1、16 列 2。主キーのないテーブル 42。外部キー 7。
+
+### 13.3 分かったことと影響
+
+- 段階1の残り（意味型の上書き、キーの上書き、段階2の画面）は、この結果で進められる。
+  - キーの上書き：主キーのないテーブルが多いので必要。キーがないときの既定の ORDER BY は付けない（取得の順は DB 任せ）で進める。
+  - 意味型：SQL Server の `yyyymmdd` はいまの core（`SemanticType = { kind: "date"; format: "yyyymmdd" }`）で扱える。ほかの書式は O-10 の結果を見て `format` を増やす。型を `format` 付きにしてあるので、増やしやすい。
+- ドライバ（driver-mssql / driver-oracle）は、Node.js からの接続確認（O-02 / O-03）が済んでから作る（§10）。数値の精度は上のとおり、SQL Server は 16 桁以上の decimal / numeric、Oracle は精度の指定がない NUMBER を文字列で取得する前提で設計する。
+
