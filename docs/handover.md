@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-25（会社 PC での `verify/` の SQL の結果を §13 に記録。O-01〜O-03、O-09 を更新し、O-10 を追加）
+最終更新：2026-09-25（会社 PC での `verify/` の SQL の結果を §13 に記録。O-01〜O-03、O-09 を更新し、O-10 を追加。D-21 でドライバの作成に進むことにした）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -55,14 +55,15 @@
 | D-18 | DB への実行は「実行」ボタンを押したときだけ。キー操作（§5 の Enter キー、Ctrl+Enter）では実行しない。Enter はグリッドのセル移動やフィルタの確定と重なるため | 確定 |
 | D-19 | 行は「行ごとの配列」（`CellValue[][]`）のチャンクで Webview に送る。§5 の「列ごとの配列」から変える。グリッドの `getValue: row => row[i]` でそのまま読め、行オブジェクトへの変換が要らないため。Webview は受け取った行を 200ms ごとにまとめて画面に反映する | 確定（当面） |
 | D-20 | VS Code に依存しないアプリ層を `packages/host` に置く（Webview とのメッセージ、ドライバのインターフェイス `DbSession`、データビューの制御 `DataViewController`、デモ接続）。拡張はこれを VS Code につなぐだけにする。ブラウザの開発用ページでも同じ制御を動かせる（§12） | 確定 |
+| D-21 | 接続確認を待たずにドライバを作る。SQL Server は Node.js（tedious、`encrypt: false`）からの接続実績があるので確認済みとみなす。Oracle は Thin モードで接続できる想定で作り、会社 PC で初めて繋いだときに確かめる。繋がらなかった場合は Thick モード（会社 PC にある Oracle Client を使う）に切り替えられるよう、接続設定に切り替えを用意しておく | 確定（ユーザーが判断） |
 
 ## 4. 未確定事項
 
 | No | 内容 | 確認方法 | 状態 |
 |---|---|---|---|
 | O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 一部確認（§13）：両方ある（DATE 96 列、日付らしい VARCHAR2(10) / (20) が約 220 列）。DATE の時刻の使用は未確認（`manual/date_time_usage.sql` を代表的な列で実行する） |
-| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。今回の結果は A5 で実行したもの（§13）なので、`node oracle-run.mjs` を 1 回実行して「接続OK（Thinモード: true）」を確かめる |
-| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 一部確認：バージョンは 2012 SP2（§13）。Node.js からの接続は未確認。`node mssql-run.mjs` を 1 回実行する |
+| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。接続できる想定で進める（D-21）。ドライバを会社 PC で初めて使うときに確かめる |
+| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 解決：バージョンは 2012 SP2（§13）。Node.js からの接続は実績があるので確認済みとみなす（D-21） |
 | O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：v0.40.0 には**ない**（§11）→ v0.41.0 で `manualFiltering` として追加された（§11.5、D-14） |
 | O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
 | O-06 | コーディング規約（Biome、TS strict、改行コード、日本語コメントなど）。既存の spreadsheet-grid / Hayami に合わせるか | ユーザーが決定 | 解決（D-10） |
@@ -192,7 +193,7 @@ packages/
 
 1. ~~このキットでリポジトリを初期化する（`git init`、初回コミット）。~~ 済み（2026-09-23。`.gitignore` を追加）
 2. 会社 PC で `verify/` を実行し、O-01〜O-03 を確認する。結果はマスクして持ち帰り、このドキュメントを更新する。
-   - 確認用 SQL の結果は済み（§13）。残り：Node.js からの接続確認（`node mssql-run.mjs` / `node oracle-run.mjs`）、DATE の時刻の使用（O-01）、文字列の日付の書式（O-10）
+   - 確認用 SQL の結果は済み（§13）。接続確認は待たずに進める（D-21）。残り：DATE の時刻の使用（O-01）、文字列の日付の書式（O-10）
 3. ~~O-04（spreadsheet-grid の外部フィルタモード）を確認する。~~ 済み（§11）。対応方針は O-08
 4. ~~モノレポの雛形を作る。~~ 済み（仮称 `@sql-editor-tool/*`、D-13）。O-05（名前）は未確定のまま
 5. ~~core から実装する：フィルタ記述子 → WHERE 句（SQL Server / Oracle の両方言）を、単体テスト付きで作る。~~ 済み（`packages/core`、SELECT 文とリテラル版を含む）
@@ -202,7 +203,7 @@ packages/
 6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
    - ~~拡張本体と Webview の土台~~ 済み（デモ接続で、接続の追加 → ツリー → テーブルを開く → フィルタ → SQL プレビュー → 実行 → 取得・中止・上限、まで動く。§12）
    - 残り（段階1）：列の意味型の上書き（日付など）とその候補の提案、キーの上書き、段階2の画面（ベースSQL を開く、`checkBaseColumns`）
-   - ドライバ（driver-mssql / driver-oracle）は、O-02 / O-03 の確認が済んでから作る。今は接続を追加できるが、開くと「ドライバはまだ実装していません」と出る
+   - ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）。今は接続を追加できるが、開くと「ドライバはまだ実装していません」と出る
 
 ## 11. spreadsheet-grid の調査結果（O-04、v0.40.0）
 
@@ -340,5 +341,5 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
 - 段階1の残り（意味型の上書き、キーの上書き、段階2の画面）は、この結果で進められる。
   - キーの上書き：主キーのないテーブルが多いので必要。キーがないときの既定の ORDER BY は付けない（取得の順は DB 任せ）で進める。
   - 意味型：SQL Server の `yyyymmdd` はいまの core（`SemanticType = { kind: "date"; format: "yyyymmdd" }`）で扱える。ほかの書式は O-10 の結果を見て `format` を増やす。型を `format` 付きにしてあるので、増やしやすい。
-- ドライバ（driver-mssql / driver-oracle）は、Node.js からの接続確認（O-02 / O-03）が済んでから作る（§10）。数値の精度は上のとおり、SQL Server は 16 桁以上の decimal / numeric、Oracle は精度の指定がない NUMBER を文字列で取得する前提で設計する。
+- ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）。数値の精度は上のとおり、SQL Server は 16 桁以上の decimal / numeric、Oracle は精度の指定がない NUMBER を文字列で取得する前提で設計する。
 
