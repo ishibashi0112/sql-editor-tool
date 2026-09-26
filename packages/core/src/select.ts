@@ -76,11 +76,12 @@ export function buildSelect(input: SelectInput): BuiltQuery {
   const limit = input.limit === undefined ? null : limitParam(input.limit);
 
   const source = fromSource(dialect, input.source);
+  const list = selectList(dialect, input.columns);
   const lines: Sql[] = [
     ...source.withClause,
     dialect.name === "mssql" && limit
-      ? sql`SELECT TOP (${limit}) *`
-      : sql`SELECT *`,
+      ? sql`SELECT TOP (${limit})${list}`
+      : sql`SELECT${list}`,
     sql`FROM ${source.from}`,
   ];
   if (conditions.length > 0) {
@@ -102,6 +103,23 @@ export function buildSelect(input: SelectInput): BuiltQuery {
     lines.push(sql`FETCH FIRST ${limit} ROWS ONLY`);
   }
   return finish(join(lines, "\n"), dialect);
+}
+
+/**
+ * 取得する列（SELECT との間の空白や改行を含む）。文字列に変換して取る列（asText）がなければ * にする。
+ * あれば 1 行に 1 列ずつ並べ、その列だけ変換して元の列名を付ける（結果の列名と並びは * と同じ）
+ */
+function selectList(dialect: Dialect, columns: readonly ColumnInfo[]): Sql {
+  if (!columns.some(isAsText)) return raw(" *");
+  const items = columns.map((column) => {
+    const ref = raw(dialect.quoteIdent(column.name));
+    return isAsText(column) ? sql`${dialect.numberAsText(ref)} AS ${ref}` : ref;
+  });
+  return sql`\n  ${join(items, ",\n  ")}`;
+}
+
+export function isAsText(column: ColumnInfo): boolean {
+  return column.type.kind === "number" && column.type.asText === true;
 }
 
 /** FROM に書く対象と、その前に置く WITH 句（SQL Server のベースSQL のみ。なければ空） */

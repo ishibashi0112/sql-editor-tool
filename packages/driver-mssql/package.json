@@ -1,0 +1,21 @@
+{
+  "name": "@sql-editor-tool/driver-mssql",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SQL Server のドライバ（tedious）。host の DbSession を実装する",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@sql-editor-tool/core": "workspace:*",
+    "@sql-editor-tool/host": "workspace:*",
+    "tedious": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.x"
+  }
+}

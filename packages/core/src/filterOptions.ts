@@ -6,7 +6,13 @@ import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue } from "./filter";
 import type { ColumnInfo, QuerySource } from "./schema";
-import { type BuiltQuery, checkLimit, finish, fromSource } from "./select";
+import {
+  type BuiltQuery,
+  checkLimit,
+  finish,
+  fromSource,
+  isAsText,
+} from "./select";
 import { join, Param, raw, type Sql, sql } from "./sql";
 import { buildConditions, type ConditionOptions } from "./where";
 
@@ -57,15 +63,21 @@ export function buildFilterOptionsQuery(
     kind: "integer",
   });
   // DISTINCT では ORDER BY に SELECT の項目しか書けないので、別名で並べる
-  const value = optionValueExpr(dialect, column);
-  const alias = raw(dialect.quoteIdent("OPTION_VALUE"));
+  const valueAlias = raw(dialect.quoteIdent("OPTION_VALUE"));
+  let items = sql`${optionValueExpr(dialect, column)} AS ${valueAlias}`;
+  let orderBy = valueAlias;
+  if (isAsText(column)) {
+    // 文字列にした値で並べると 10 が 9 より前に来るので、元の数値も取ってそれで並べる。結果の 1 列目は変わらない
+    orderBy = raw(dialect.quoteIdent("OPTION_ORDER"));
+    items = sql`${items}, ${raw(dialect.quoteIdent(column.name))} AS ${orderBy}`;
+  }
 
   const source = fromSource(dialect, input.source);
   const lines: Sql[] = [
     ...source.withClause,
     dialect.name === "mssql"
-      ? sql`SELECT DISTINCT TOP (${limit}) ${value} AS ${alias}`
-      : sql`SELECT DISTINCT ${value} AS ${alias}`,
+      ? sql`SELECT DISTINCT TOP (${limit}) ${items}`
+      : sql`SELECT DISTINCT ${items}`,
     sql`FROM ${source.from}`,
   ];
   if (conditions.length > 0) {
@@ -74,8 +86,8 @@ export function buildFilterOptionsQuery(
   // 空欄を先頭にして、打ち切られても候補に残るようにする。SQL Server の昇順は NULL と空文字が先頭に来る
   lines.push(
     dialect.name === "oracle"
-      ? sql`ORDER BY ${alias} NULLS FIRST`
-      : sql`ORDER BY ${alias}`,
+      ? sql`ORDER BY ${orderBy} NULLS FIRST`
+      : sql`ORDER BY ${orderBy}`,
   );
   if (dialect.name === "oracle") {
     lines.push(sql`FETCH FIRST ${limit} ROWS ONLY`);
@@ -87,8 +99,9 @@ function optionValueExpr(dialect: Dialect, column: ColumnInfo): Sql {
   const ref = raw(dialect.quoteIdent(column.name));
   switch (column.type.kind) {
     case "string":
-    case "number":
       return ref;
+    case "number":
+      return column.type.asText ? dialect.numberAsText(ref) : ref;
     case "datetime":
       // 時刻を持ちうる列も日単位の候補にする。Date で受けると、ドライバのタイムゾーン変換で日がずれることがあるので、文字列にして受ける
       return dialect.ymdFromDate(ref);

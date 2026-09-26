@@ -20,6 +20,8 @@ export type Dialect = {
   ymdFromDate(value: Sql): Sql;
   /** 固定長文字列（CHAR）の列と比べる値の式 */
   padFixedChar(value: Sql, length: number): Sql;
+  /** 数値を文字列にする式。asText の列を取るときに使う（schema.ts） */
+  numberAsText(value: Sql): Sql;
   /** IN の要素数の上限。超えたら分割して OR で繋ぐ */
   readonly maxInListSize: number;
   /** 1 文あたりのバインド変数の上限 */
@@ -47,6 +49,8 @@ export const mssql: Dialect = {
   ymdFromDate: (value) => sql`CONVERT(char(8), ${value}, 112)`,
   // SQL Server の = は末尾の空白を無視するので、埋める必要はない
   padFixedChar: (value) => value,
+  // decimal(38, s) は符号と小数点を入れて 40 文字まで
+  numberAsText: (value) => sql`CONVERT(varchar(40), ${value})`,
   maxInListSize: Number.POSITIVE_INFINITY,
   // 上限は 2100。件数の制限などの分を残しておく
   maxParams: 2000,
@@ -68,6 +72,8 @@ export const oracle: Dialect = {
   // 列側を RTRIM するとインデックスが効かなくなる
   padFixedChar: (value, length) =>
     sql`RPAD(${value}, ${raw(String(Math.trunc(length)))})`,
+  // Oracle のドライバは桁の多い NUMBER を取得時に文字列にするので、asText の列は作らない。方言をそろえるためだけに置く
+  numberAsText: (value) => sql`TO_CHAR(${value})`,
   maxInListSize: 1000,
   maxParams: 65535,
 };

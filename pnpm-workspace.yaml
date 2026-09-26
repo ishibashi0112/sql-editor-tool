@@ -4,10 +4,12 @@ packages:
 # ビルドスクリプトの許可設定
 # esbuild は optionalDependencies でバイナリを取得するので、ビルドスクリプトは不要
 # @vscode/vsce-sign / keytar は Marketplace への公開・署名用なので、vsix を作るだけなら不要
+# oracledb の install スクリプトは動作環境の確認メッセージを出すだけ（Thick モードのバイナリは配布物に同梱されている）
 allowBuilds:
   '@vscode/vsce-sign': false
   esbuild: false
   keytar: false
+  oracledb: false
 
 # 公開から日が浅く、minimumReleaseAge に引っかかるもの（自作ライブラリ）
 minimumReleaseAgeExclude:

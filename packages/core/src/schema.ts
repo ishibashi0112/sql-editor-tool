@@ -11,7 +11,16 @@ export type ColumnType =
       /** 宣言された長さ。MAX や不明のときは null */
       length: number | null;
     }
-  | { kind: "number"; precision: number | null; scale: number | null }
+  | {
+      kind: "number";
+      precision: number | null;
+      scale: number | null;
+      /**
+       * ドライバが値を正確に受け取れない列。SELECT で文字列に変換して取る。
+       * SQL Server の 16 桁以上の decimal / numeric（tedious は JavaScript の数値で読むので、下の桁が狂う）
+       */
+      asText?: boolean;
+    }
   | {
       kind: "datetime";
       /** 時刻部分を持ちうるか。SQL Server の date は false、datetime や Oracle の DATE は true */

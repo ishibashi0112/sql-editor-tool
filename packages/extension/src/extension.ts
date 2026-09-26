@@ -10,7 +10,7 @@ let sessions: SessionManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const store = new ConnectionStore(context);
-  sessions = new SessionManager(store);
+  sessions = new SessionManager(store, context.extensionUri);
   const tree = new ConnectionTree(store, sessions);
   const manager = sessions;
 
