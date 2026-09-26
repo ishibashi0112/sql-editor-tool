@@ -70,4 +70,11 @@ export {
   type WhereInput,
 } from "./select";
 export type { BoundParam, ParamType } from "./sql";
+export {
+  applyTableSettings,
+  canBeYmd,
+  sanitizeTableSettings,
+  type TableSettings,
+  ymdCandidates,
+} from "./tableSettings";
 export type { ConditionOptions, ResolveDatePreset } from "./where";

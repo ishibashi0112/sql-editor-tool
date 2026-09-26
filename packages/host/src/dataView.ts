@@ -3,12 +3,17 @@
 // 利用者が「今の絞り込みで取り直す」を選んだときだけ（D-25）
 
 import {
+  applyTableSettings,
   buildSelect,
   type ColumnFilterValue,
   QueryBuildError,
   type QuerySource,
+  type SemanticType,
   type SortEntry,
+  sanitizeTableSettings,
   type TableRef,
+  type TableSettings,
+  ymdCandidates,
 } from "@sql-editor-tool/core";
 import type {
   FromWebview,
@@ -18,7 +23,12 @@ import type {
   ViewInit,
 } from "./protocol";
 import { errorMessage, QueryRunner } from "./queryRunner";
-import type { CellValue, DbSession, QueryRequest } from "./session";
+import type {
+  CellValue,
+  DbSession,
+  QueryRequest,
+  TableDescription,
+} from "./session";
 
 export type DataViewSettings = {
   /** 取得の上限（D-11） */
@@ -32,6 +42,14 @@ export type DataViewDeps = {
   demo: boolean;
   post(message: ToWebview): void;
   copyText(text: string): Promise<void>;
+  /**
+   * テーブルの列の設定の保存先（D-36）。load は保存したことがなければ undefined。
+   * 省略すると、開いている間だけ覚えておく
+   */
+  tableSettings?: {
+    load(): unknown;
+    save(settings: TableSettings): Promise<void>;
+  };
 };
 
 type Built = {
@@ -41,6 +59,10 @@ type Built = {
 };
 
 export class DataViewController {
+  /** DB から読んだ列と主キー（設定を当てる前） */
+  private described: TableDescription | null = null;
+  private tableSettings: TableSettings = {};
+  private settingsSaved = false;
   private columns: ViewColumn[] = [];
   private filters: Record<string, ColumnFilterValue> = {};
   private sort: SortEntry[] = [];
@@ -69,6 +91,26 @@ export class DataViewController {
         return;
       case "copySql":
         return this.copySql(message.variant);
+      case "saveColumnSettings":
+        return this.saveSettings({
+          semantic: message.semantic,
+          keyColumns: message.keyColumns,
+        });
+      case "acceptSuggestion": {
+        const semantic: Record<string, SemanticType> = {
+          ...this.tableSettings.semantic,
+        };
+        for (const name of ymdCandidates(this.columns)) {
+          semantic[name] = { kind: "date", format: "yyyymmdd" };
+        }
+        return this.saveSettings({ ...this.tableSettings, semantic });
+      }
+      case "dismissSuggestion":
+        // 列は変わらないので画面は作り直さない（案内は画面の側で消す）
+        return this.saveSettings(
+          { ...this.tableSettings, suggestionDismissed: true },
+          false,
+        );
     }
   }
 
@@ -82,27 +124,66 @@ export class DataViewController {
   }
 
   private async init(): Promise<void> {
-    const { table, session, settings, demo } = this.deps;
+    const { table, session } = this.deps;
     try {
-      const described = await session.describeTable(table);
-      const keys = new Set(described.primaryKey);
-      this.columns = described.columns.map((column) => ({
-        ...column,
-        isKey: keys.has(column.name),
-      }));
+      this.described = await session.describeTable(table);
     } catch (error) {
       this.post({ type: "initFailed", message: errorMessage(error) });
       return;
     }
+    const saved = this.deps.tableSettings?.load();
+    this.settingsSaved = saved !== undefined;
+    this.tableSettings = sanitizeTableSettings(saved);
+    this.applySettings();
+    this.postInit();
+  }
+
+  private applySettings(): void {
+    if (!this.described) return;
+    this.columns = applyTableSettings(
+      this.described.columns,
+      this.described.primaryKey,
+      this.tableSettings,
+    );
+  }
+
+  private postInit(): void {
+    const { table, session, settings, demo } = this.deps;
+    const candidates = ymdCandidates(this.columns);
     const view: ViewInit = {
       title: `${table.schema}.${table.name}`,
       dialect: session.dialect,
       columns: this.columns,
       maxRows: settings.maxRows,
       demo,
+      primaryKey: this.described?.primaryKey ?? [],
+      candidates,
+      suggestion: this.settingsSaved ? [] : candidates,
+      settingsSaved: this.settingsSaved,
     };
     this.post({ type: "init", view });
     this.postPreview();
+  }
+
+  /**
+   * 列の設定を保存して当てる。列の種類が変わると画面の絞り込みと形が合わなくなるので、
+   * 画面を作り直し、絞り込みと並べ替えを外す（rebuild が false なら当てるだけ）
+   */
+  private async saveSettings(
+    settings: TableSettings,
+    rebuild = true,
+  ): Promise<void> {
+    const next = sanitizeTableSettings(settings);
+    // キーは主キーのないテーブル・ビューだけ
+    if ((this.described?.primaryKey.length ?? 0) > 0) delete next.keyColumns;
+    this.tableSettings = next;
+    this.settingsSaved = true;
+    await this.deps.tableSettings?.save(next);
+    if (!rebuild) return;
+    this.filters = {};
+    this.sort = [];
+    this.applySettings();
+    this.postInit();
   }
 
   /** 主キーの順。上限で打ち切ったときに、どの行を取るかを安定させるため */
