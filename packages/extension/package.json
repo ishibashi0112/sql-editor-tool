@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、列見出しのフィルタで絞り込んで見る読み取り専用のツール",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
