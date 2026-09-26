@@ -58,3 +58,21 @@ export type QuerySource =
       config: ReportConfig;
       values: ReportValues;
     };
+
+/** DB に依存しない型の表示（例：文字列(8)、数値(15,2)、日時） */
+export function columnTypeLabel(type: ColumnType): string {
+  switch (type.kind) {
+    case "string":
+      return `${type.fixedLength ? "固定長の文字列" : "文字列"}(${type.length ?? "最大"})`;
+    case "number":
+      return type.precision === null
+        ? "数値"
+        : type.scale
+          ? `数値(${type.precision},${type.scale})`
+          : `数値(${type.precision})`;
+    case "datetime":
+      return type.hasTime ? "日時" : "日付";
+    case "other":
+      return type.dbTypeName;
+  }
+}

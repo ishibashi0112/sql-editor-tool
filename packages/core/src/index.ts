@@ -1,5 +1,13 @@
 export { checkBaseColumns } from "./baseSql";
 export {
+  type CompletionContext,
+  completionContext,
+  completionIdentifier,
+  sqlKeywords,
+  type TableReference,
+  tableReferences,
+} from "./completion";
+export {
   normalizeDateKey,
   resolveBuiltinDatePreset,
   ymdToDateKey,
@@ -38,6 +46,7 @@ export {
   type GuessedParamTypes,
   guessReportParamTypes,
   hasRelativeDefault,
+  hasReportHeader,
   looksLikeDateName,
   parseReportConfig,
   type ReportConfig,
@@ -52,12 +61,13 @@ export {
   withGuessedTypes,
   writeReportConfig,
 } from "./report";
-export type {
-  ColumnInfo,
-  ColumnType,
-  QuerySource,
-  SemanticType,
-  TableRef,
+export {
+  type ColumnInfo,
+  type ColumnType,
+  columnTypeLabel,
+  type QuerySource,
+  type SemanticType,
+  type TableRef,
 } from "./schema";
 export {
   type BuiltQuery,

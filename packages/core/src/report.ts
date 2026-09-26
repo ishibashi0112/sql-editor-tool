@@ -90,6 +90,11 @@ export function parseReportConfig(text: string): {
   }
 }
 
+/** 先頭にレポートの設定のコメント（@report で始まるブロックコメント）があるか */
+export function hasReportHeader(text: string): boolean {
+  return HEADER.test(text);
+}
+
 /** 先頭のコメントの設定を書き換えた全文を返す。コメントがなければ先頭に足す */
 export function writeReportConfig(text: string, config: ReportConfig): string {
   // JSON の文字列に */ があるとコメントが途中で閉じるので、\/ と書く（JSON として同じ意味）
