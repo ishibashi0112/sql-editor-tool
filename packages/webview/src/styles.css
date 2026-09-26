@@ -256,3 +256,121 @@ body.vscode-high-contrast .form input[type="date"] {
 .settings td.check {
   text-align: center;
 }
+
+.settings .guessed,
+.settings .resolved {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #57606a);
+}
+
+.settings .options-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.settings textarea {
+  width: 100%;
+  min-width: 480px;
+  box-sizing: border-box;
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  padding: 3px 6px;
+  color: var(--vscode-input-foreground, #1f2328);
+  background: var(--vscode-input-background, #ffffff);
+  border: 1px solid var(--vscode-input-border, #cecece);
+  border-radius: 2px;
+  outline: none;
+  resize: vertical;
+}
+
+.settings textarea:focus {
+  border-color: var(--vscode-focusBorder, #0090f1);
+}
+
+.settings .help {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+/* 選択肢の入力欄（打って絞れるリスト。D-34） */
+.combo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.form .combo input {
+  width: 240px;
+}
+
+.combo-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  max-width: 480px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  list-style: none;
+  background: var(
+    --vscode-editorSuggestWidget-background,
+    var(--vscode-input-background, #ffffff)
+  );
+  color: var(--vscode-editorSuggestWidget-foreground, inherit);
+  border: 1px solid
+    var(
+      --vscode-editorSuggestWidget-border,
+      var(--vscode-panel-border, #d0d7de)
+    );
+  border-radius: 2px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
+}
+
+.combo-list > div {
+  display: flex;
+  gap: 12px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.combo-list .item.active {
+  background: var(
+    --vscode-editorSuggestWidget-selectedBackground,
+    var(--vscode-list-activeSelectionBackground, #0060c0)
+  );
+  color: var(
+    --vscode-editorSuggestWidget-selectedForeground,
+    var(--vscode-list-activeSelectionForeground, #ffffff)
+  );
+}
+
+.combo-list .value {
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+}
+
+.combo-list .option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo-list .note {
+  cursor: default;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #57606a);
+}
+
+.combo-error {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--vscode-errorForeground, #cf222e);
+}
