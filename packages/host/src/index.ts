@@ -16,9 +16,12 @@ export type {
   FromReport,
   ReportFormValues,
   ReportInit,
+  ReportOption,
+  ReportOptionsState,
   ToReport,
 } from "./reportProtocol";
 export {
+  OPTIONS_LIMIT,
   type ReportConnection,
   ReportController,
   type ReportViewDeps,

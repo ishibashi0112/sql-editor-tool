@@ -13,6 +13,19 @@ import type { QueryMessage } from "./queryRunner";
 /** フォームの値（入力欄の名前 → 入力した文字列） */
 export type ReportFormValues = Record<string, string>;
 
+/** 選択肢の候補（1 列目＝値、2 列目＝表示名。D-34） */
+export type ReportOption = { value: string; label: string };
+
+/** 選択肢の候補の取得の状況 */
+export type ReportOptionsState =
+  | { status: "loading" }
+  | {
+      status: "ok";
+      options: ReportOption[] /** 上限で打ち切った */;
+      truncated: boolean;
+    }
+  | { status: "error"; message: string };
+
 export type ReportInit = {
   /** ファイル名（.sql を除く） */
   title: string;
@@ -25,11 +38,15 @@ export type ReportInit = {
   maxRows: number;
   /** 先頭の設定のコメントを読めなかった理由 */
   configError: string | null;
+  /** 選択肢の入力欄の候補（入力欄の名前 → 取得の状況） */
+  options: Record<string, ReportOptionsState>;
 };
 
 export type ToReport =
   | { type: "init"; view: ReportInit }
   | { type: "preview"; preview: SqlPreview }
+  /** 選択肢の候補が届いた・取得に失敗した */
+  | { type: "options"; name: string; state: ReportOptionsState }
   /** 結果の列（実行するたびに、行より先に届く） */
   | { type: "columns"; queryId: number; columns: ViewColumn[] }
   | QueryMessage;
