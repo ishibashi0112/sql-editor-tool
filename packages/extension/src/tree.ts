@@ -106,7 +106,8 @@ export class ConnectionTree implements vscode.TreeDataProvider<TreeNode> {
   }
 }
 
-function describe(profile: ConnectionProfile): string {
+/** 接続の DB の種類（ツリーとテーブル検索に出す） */
+export function describe(profile: ConnectionProfile): string {
   switch (profile.driver) {
     case "mssql":
       return "SQL Server";

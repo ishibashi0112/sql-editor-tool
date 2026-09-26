@@ -78,10 +78,14 @@ button:disabled {
   color: var(--vscode-errorForeground, #cf222e);
 }
 
+/* editorInfo-background は暗いテーマにないことがあり、薄い背景に明るい文字になるので、入力検証の色を使う */
 .notice {
   padding: 4px 12px;
-  background: var(--vscode-editorInfo-background, #ddf4ff);
-  color: var(--vscode-foreground, #1f2328);
+  background: var(--vscode-inputValidation-infoBackground, #ddf4ff);
+  color: var(
+    --vscode-inputValidation-infoForeground,
+    var(--vscode-foreground, #1f2328)
+  );
   border-bottom: 1px solid var(--vscode-panel-border, #d0d7de);
 }
 

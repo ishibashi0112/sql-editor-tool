@@ -35,7 +35,11 @@ const contexts = await Promise.all([
   }),
   context({
     ...common,
-    entryPoints: [here("../webview/src/main.tsx")],
+    // データビュー（main）とサイドバーのテーブル検索（search）
+    entryPoints: {
+      main: here("../webview/src/main.tsx"),
+      search: here("../webview/src/search/main.ts"),
+    },
     outdir: here("./dist/webview"),
     format: "iife",
     platform: "browser",

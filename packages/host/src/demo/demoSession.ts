@@ -9,6 +9,7 @@ import {
   type DbSession,
   type QueryHandlers,
   type QueryRequest,
+  type SchemaObject,
   type TableDescription,
 } from "../session";
 import { DEMO_TABLES, type DemoTable } from "./demoData";
@@ -41,6 +42,14 @@ export class DemoSession implements DbSession {
         kind,
       }),
     );
+  }
+
+  async listAllObjects(): Promise<SchemaObject[]> {
+    return DEMO_TABLES.map(({ schema, name, kind }) => ({
+      schema,
+      name,
+      kind,
+    }));
   }
 
   async describeTable(table: TableRef): Promise<TableDescription> {

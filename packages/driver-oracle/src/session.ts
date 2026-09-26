@@ -8,11 +8,13 @@ import {
   type DbSession,
   type QueryHandlers,
   type QueryRequest,
+  type SchemaObject,
   type TableDescription,
 } from "@sql-editor-tool/host";
 import oracledb from "oracledb";
 import {
   DESCRIBE_COLUMNS_SQL,
+  LIST_ALL_OBJECTS_SQL,
   LIST_OBJECTS_SQL,
   LIST_SCHEMAS_SQL,
   PRIMARY_KEY_SQL,
@@ -123,6 +125,15 @@ export class OracleSession implements DbSession {
     return rows.map((row) => ({
       name: String(row[0]),
       kind: row[1] === "V" ? "view" : "table",
+    }));
+  }
+
+  async listAllObjects(): Promise<SchemaObject[]> {
+    const rows = await this.select(LIST_ALL_OBJECTS_SQL, {});
+    return rows.map((row) => ({
+      schema: String(row[0]),
+      name: String(row[1]),
+      kind: row[2] === "V" ? "view" : "table",
     }));
   }
 

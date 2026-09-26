@@ -12,11 +12,13 @@ import {
   type DbSession,
   type QueryHandlers,
   type QueryRequest,
+  type SchemaObject,
   type TableDescription,
 } from "@sql-editor-tool/host";
 import { Connection, Request } from "tedious";
 import {
   DESCRIBE_COLUMNS_SQL,
+  LIST_ALL_OBJECTS_SQL,
   LIST_OBJECTS_SQL,
   LIST_SCHEMAS_SQL,
   PRIMARY_KEY_SQL,
@@ -96,6 +98,15 @@ export class MssqlSession implements DbSession {
       name: String(row[0]),
       // sys.objects.type は char(2)（'U ' / 'V '）
       kind: String(row[1]).trim() === "V" ? "view" : "table",
+    }));
+  }
+
+  async listAllObjects(): Promise<SchemaObject[]> {
+    const rows = await this.select(LIST_ALL_OBJECTS_SQL, []);
+    return rows.map((row) => ({
+      schema: String(row[0]),
+      name: String(row[1]),
+      kind: String(row[2]).trim() === "V" ? "view" : "table",
     }));
   }
 

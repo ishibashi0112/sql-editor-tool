@@ -30,8 +30,15 @@
     "views": {
       "sqlEditorTool": [
         {
+          "type": "webview",
+          "id": "sqlEditorTool.search",
+          "name": "テーブル検索",
+          "initialSize": 2
+        },
+        {
           "id": "sqlEditorTool.connections",
-          "name": "接続"
+          "name": "接続",
+          "initialSize": 1
         }
       ]
     },

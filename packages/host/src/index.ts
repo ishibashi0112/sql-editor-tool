@@ -11,6 +11,11 @@ export type {
   ViewColumn,
   ViewInit,
 } from "./protocol";
+export type {
+  FromSearchView,
+  SearchConnection,
+  ToSearchView,
+} from "./searchProtocol";
 export {
   abortError,
   type CellValue,
@@ -19,6 +24,7 @@ export {
   isAbortError,
   type QueryHandlers,
   type QueryRequest,
+  type SchemaObject,
   type TableDescription,
 } from "./session";
 export {

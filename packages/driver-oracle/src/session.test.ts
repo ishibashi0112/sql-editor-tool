@@ -184,6 +184,21 @@ describe("OracleSession のメタデータ", () => {
     expect(connections[0]?.executed[0]?.binds).toEqual({ owner: "APP" });
   });
 
+  test("すべてのスキーマのテーブルとビューを 1 回で取る（テーブル検索用）", async () => {
+    const { session, connections } = sessionWith(() => ({
+      columns: ["OWNER", "TABLE_NAME", "'T'"],
+      rows: [
+        ["APP", "ORDERS", "T"],
+        ["SALES", "V_ORDERS", "V"],
+      ],
+    }));
+    expect(await session.listAllObjects()).toEqual([
+      { schema: "APP", name: "ORDERS", kind: "table" },
+      { schema: "SALES", name: "V_ORDERS", kind: "view" },
+    ]);
+    expect(connections[0]?.executed).toHaveLength(1);
+  });
+
   test("列の型と主キーを返す（精度の指定がない NUMBER の長さなどは文字列で届く）", async () => {
     const { session } = sessionWith((sql) =>
       sql.includes("ALL_TAB_COLUMNS")

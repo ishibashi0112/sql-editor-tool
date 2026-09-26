@@ -228,6 +228,20 @@ describe("MssqlSession のメタデータ", () => {
     ]);
   });
 
+  test("すべてのスキーマのテーブルとビューを 1 回で取る（テーブル検索用）", async () => {
+    const { session, connections } = sessionWith((_, c) => {
+      c.columns([]);
+      c.row(["dbo", "ORDERS", "U "]);
+      c.row(["sales", "V_ORDERS", "V "]);
+      c.finish();
+    });
+    expect(await session.listAllObjects()).toEqual([
+      { schema: "dbo", name: "ORDERS", kind: "table" },
+      { schema: "sales", name: "V_ORDERS", kind: "view" },
+    ]);
+    expect(connections[0]?.requests).toHaveLength(1);
+  });
+
   test("列の型と主キーを返す", async () => {
     const { session } = sessionWith((sql, c) => {
       if (sql.includes("sys.columns c\nJOIN sys.objects")) {

@@ -37,6 +37,7 @@ function recording() {
     dialect: "mssql",
     listSchemas: () => demo.listSchemas(),
     listObjects: (schema) => demo.listObjects(schema),
+    listAllObjects: () => demo.listAllObjects(),
     describeTable: (table) => demo.describeTable(table),
     query: (request, handlers) => {
       requests.push(request);
@@ -132,6 +133,7 @@ describe("DataViewController", () => {
       dialect: "mssql",
       listSchemas: () => demo.listSchemas(),
       listObjects: (schema) => demo.listObjects(schema),
+      listAllObjects: () => demo.listAllObjects(),
       describeTable: async () => ({
         columns: [
           { name: "A", type: { kind: "number", precision: null, scale: null } },

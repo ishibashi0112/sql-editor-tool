@@ -31,6 +31,13 @@ JOIN sys.schemas s ON s.schema_id = o.schema_id
 WHERE s.name = @schema AND o.name = @name AND o.type IN ('U', 'V')
 ORDER BY c.column_id`;
 
+/** すべてのスキーマのテーブルとビュー（テーブル検索用） */
+export const LIST_ALL_OBJECTS_SQL = `SELECT s.name, o.name, o.type
+FROM sys.objects o
+JOIN sys.schemas s ON s.schema_id = o.schema_id
+WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+ORDER BY s.name, o.name`;
+
 /** @schema.@name の主キーの列（キーの順） */
 export const PRIMARY_KEY_SQL = `SELECT c.name
 FROM sys.indexes i

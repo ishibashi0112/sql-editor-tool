@@ -18,6 +18,9 @@ export type CellValue = string | number | boolean | null;
 
 export type DbObject = { name: string; kind: "table" | "view" };
 
+/** スキーマつきのテーブル／ビュー（テーブル検索で使う） */
+export type SchemaObject = DbObject & { schema: string };
+
 export type TableDescription = {
   /** 列の並びは DB 上の順（SELECT * の順） */
   columns: ColumnInfo[];
@@ -51,6 +54,8 @@ export interface DbSession {
   readonly dialect: DialectName;
   listSchemas(): Promise<string[]>;
   listObjects(schema: string): Promise<DbObject[]>;
+  /** すべてのスキーマのテーブルとビュー（スキーマ、名前の順）。テーブル検索で、1 回で取るために使う */
+  listAllObjects(): Promise<SchemaObject[]>;
   describeTable(table: TableRef): Promise<TableDescription>;
   /** signal が中断されたら、DB 側の実行も止めて AbortError を投げる */
   query(request: QueryRequest, handlers: QueryHandlers): Promise<void>;

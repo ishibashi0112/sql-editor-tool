@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { ConnectionStore, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
+import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
 import { ConnectionTree, type TreeNode } from "./tree";
 
@@ -13,6 +14,7 @@ export function activate(context: vscode.ExtensionContext): void {
   sessions = new SessionManager(store, context.extensionUri);
   const tree = new ConnectionTree(store, sessions);
   const manager = sessions;
+  const search = new TableSearchView(context.extensionUri, store, manager);
 
   context.subscriptions.push(
     store,
@@ -21,8 +23,18 @@ export function activate(context: vscode.ExtensionContext): void {
       treeDataProvider: tree,
       showCollapseAll: true,
     }),
-    store.onDidChange(() => tree.refresh()),
-    manager.onDidChange(() => tree.refresh()),
+    vscode.window.registerWebviewViewProvider("sqlEditorTool.search", search, {
+      // 入力中の文字と結果を、サイドバーを切り替えても保つ
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    store.onDidChange(() => {
+      tree.refresh();
+      search.update();
+    }),
+    manager.onDidChange(() => {
+      tree.refresh();
+      search.update();
+    }),
 
     vscode.commands.registerCommand("sqlEditorTool.addConnection", async () => {
       const added = await promptConnection();
@@ -51,9 +63,10 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
 
-    vscode.commands.registerCommand("sqlEditorTool.refresh", () =>
-      tree.refresh(),
-    ),
+    vscode.commands.registerCommand("sqlEditorTool.refresh", () => {
+      tree.refresh();
+      search.reload();
+    }),
 
     vscode.commands.registerCommand(
       "sqlEditorTool.openTable",
