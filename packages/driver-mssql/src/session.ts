@@ -22,6 +22,7 @@ import {
   LIST_OBJECTS_SQL,
   LIST_SCHEMAS_SQL,
   PRIMARY_KEY_SQL,
+  resultColumnType,
   toColumnType,
 } from "./metadata";
 import { Pool } from "./pool";
@@ -272,7 +273,14 @@ export function execute(
     request.on("columnMetadata", (columns) => {
       const list = Array.isArray(columns) ? columns : Object.values(columns);
       types = list.map((column) => column.type.name);
-      guard(() => handlers.onColumns(list.map((column) => column.colName)));
+      guard(() =>
+        handlers.onColumns(
+          list.map((column) => ({
+            name: column.colName,
+            type: resultColumnType(column),
+          })),
+        ),
+      );
     });
     request.on("row", (columns: { value: unknown }[]) => {
       guard(() => {

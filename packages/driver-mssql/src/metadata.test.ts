@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type SysColumn, toColumnType } from "./metadata";
+import { resultColumnType, type SysColumn, toColumnType } from "./metadata";
 
 const col = (
   typeName: string,
@@ -95,5 +95,54 @@ describe("toColumnType", () => {
         dbTypeName: name,
       });
     }
+  });
+});
+
+describe("resultColumnType（結果の列の型）", () => {
+  test("文字列の長さ。nvarchar はバイト数の半分、MAX は null", () => {
+    expect(
+      resultColumnType({ type: { name: "NVarChar" }, dataLength: 40 }),
+    ).toEqual({
+      kind: "string",
+      unicode: true,
+      fixedLength: false,
+      length: 20,
+    });
+    expect(
+      resultColumnType({ type: { name: "VarChar" }, dataLength: 65535 }),
+    ).toMatchObject({ length: null });
+  });
+
+  test("数値・日付・bit", () => {
+    expect(resultColumnType({ type: { name: "IntN" }, dataLength: 8 })).toEqual(
+      {
+        kind: "number",
+        precision: 19,
+        scale: 0,
+      },
+    );
+    expect(
+      resultColumnType({ type: { name: "DecimalN" }, precision: 19, scale: 2 }),
+    ).toEqual({ kind: "number", precision: 19, scale: 2 });
+    expect(resultColumnType({ type: { name: "Date" } })).toEqual({
+      kind: "datetime",
+      hasTime: false,
+    });
+    expect(resultColumnType({ type: { name: "DateTimeN" } })).toEqual({
+      kind: "datetime",
+      hasTime: true,
+    });
+    expect(resultColumnType({ type: { name: "BitN" } })).toEqual({
+      kind: "number",
+      precision: 1,
+      scale: 0,
+    });
+  });
+
+  test("条件で扱わない型は other", () => {
+    expect(resultColumnType({ type: { name: "UniqueIdentifier" } })).toEqual({
+      kind: "other",
+      dbTypeName: "uniqueidentifier",
+    });
   });
 });

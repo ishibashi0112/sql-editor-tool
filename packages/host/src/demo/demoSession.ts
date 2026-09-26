@@ -63,7 +63,7 @@ export class DemoSession implements DbSession {
       throw new Error("デモ接続ではベースSQL を実行できません");
     }
     const table = findTable(intent.source.table);
-    handlers.onColumns(table.columns.map((c) => c.name));
+    handlers.onColumns(table.columns.map(({ name, type }) => ({ name, type })));
     const rows = sortRows(table, intent.sort).slice(0, intent.limit);
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       await this.wait(handlers.signal);

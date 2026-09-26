@@ -3,6 +3,7 @@
 import type {
   BoundParam,
   ColumnInfo,
+  ColumnType,
   DialectName,
   QuerySource,
   SortEntry,
@@ -42,10 +43,16 @@ export type QueryRequest = {
   };
 };
 
+/**
+ * 結果の列。型はドライバが結果のメタデータから作る（レポートの結果は、実行するまで列が分からないため）。
+ * 名前のない列（SQL Server の COUNT(*) など）は空文字
+ */
+export type ResultColumn = { name: string; type: ColumnType };
+
 export type QueryHandlers = {
   signal: AbortSignal;
-  /** 結果の列名。行より先に 1 回だけ呼ぶ */
-  onColumns(names: string[]): void;
+  /** 結果の列。行より先に 1 回だけ呼ぶ */
+  onColumns(columns: ResultColumn[]): void;
   /** 行をまとめて渡す（1 行ずつではなく、数百〜数千行ずつ）。値の並びは onColumns の順 */
   onRows(rows: CellValue[][]): void;
 };

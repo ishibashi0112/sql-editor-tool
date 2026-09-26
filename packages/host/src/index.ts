@@ -24,6 +24,7 @@ export {
   isAbortError,
   type QueryHandlers,
   type QueryRequest,
+  type ResultColumn,
   type SchemaObject,
   type TableDescription,
 } from "./session";

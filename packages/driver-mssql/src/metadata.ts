@@ -48,6 +48,78 @@ JOIN sys.schemas s ON s.schema_id = o.schema_id
 WHERE s.name = @schema AND o.name = @name AND i.is_primary_key = 1
 ORDER BY ic.key_ordinal`;
 
+/** tedious の結果の列のメタデータ（使う部分だけ） */
+export type ResultMetadata = {
+  type: { name: string };
+  dataLength?: number | undefined;
+  precision?: number | undefined;
+  scale?: number | undefined;
+};
+
+/** 整数型の N 版（IntN）は、バイト数で型が決まる */
+const INT_N_PRECISION: Record<number, number> = { 1: 3, 2: 5, 4: 10, 8: 19 };
+
+/**
+ * 結果の列の型（レポートの結果に使う）。describeTable の toColumnType と同じ対応にする。
+ * 結果の値は変換できないので、16 桁以上の decimal も asText にはしない（O-14）
+ */
+export function resultColumnType(meta: ResultMetadata): ColumnType {
+  const length = meta.dataLength ?? 0;
+  const precision = meta.precision ?? 0;
+  const scale = meta.scale ?? 0;
+  const as = (typeName: string, maxLength: number, p = precision, s = scale) =>
+    toColumnType({ typeName, maxLength, precision: p, scale: s });
+  switch (meta.type.name) {
+    case "VarChar":
+    case "Char":
+      // MAX は 65535 で届く
+      return as(meta.type.name, length > 8000 ? -1 : length);
+    case "NVarChar":
+    case "NChar":
+      return as(meta.type.name, length > 8000 ? -1 : length);
+    case "IntN":
+      return {
+        kind: "number",
+        precision: INT_N_PRECISION[length] ?? 19,
+        scale: 0,
+      };
+    case "TinyInt":
+      return { kind: "number", precision: 3, scale: 0 };
+    case "SmallInt":
+      return { kind: "number", precision: 5, scale: 0 };
+    case "Int":
+      return { kind: "number", precision: 10, scale: 0 };
+    case "BigInt":
+      return { kind: "number", precision: 19, scale: 0 };
+    case "Decimal":
+    case "Numeric":
+    case "DecimalN":
+    case "NumericN":
+      return { kind: "number", precision, scale };
+    case "Money":
+    case "MoneyN":
+      return { kind: "number", precision: length === 4 ? 10 : 19, scale: 4 };
+    case "SmallMoney":
+      return { kind: "number", precision: 10, scale: 4 };
+    case "Bit":
+    case "BitN":
+      return as("bit", 1);
+    case "Float":
+    case "Real":
+    case "FloatN":
+      return as("float", length);
+    case "Date":
+      return as("date", 3);
+    case "DateTime":
+    case "DateTimeN":
+    case "SmallDateTime":
+    case "DateTime2":
+      return as("datetime", 8);
+    default:
+      return as(meta.type.name.toLowerCase(), length);
+  }
+}
+
 export type SysColumn = {
   typeName: string;
   maxLength: number;

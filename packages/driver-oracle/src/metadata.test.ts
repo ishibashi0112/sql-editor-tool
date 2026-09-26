@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type TabColumn, toColumnType } from "./metadata";
+import { resultColumnType, type TabColumn, toColumnType } from "./metadata";
 
 const col = (dataType: string, over: Partial<TabColumn> = {}): TabColumn => ({
   dataType,
@@ -86,6 +86,38 @@ describe("toColumnType", () => {
       expect(toColumnType(col(name))).toEqual({
         kind: "other",
         dbTypeName: name,
+      });
+    }
+  });
+});
+
+describe("resultColumnType（結果の列の型）", () => {
+  test("VARCHAR2 と NVARCHAR2 の長さ", () => {
+    expect(resultColumnType({ dbTypeName: "VARCHAR2", byteSize: 20 })).toEqual({
+      kind: "string",
+      unicode: false,
+      fixedLength: false,
+      length: 20,
+    });
+    expect(
+      resultColumnType({ dbTypeName: "NVARCHAR2", byteSize: 40 }),
+    ).toMatchObject({ unicode: true, length: 20 });
+  });
+
+  test("NUMBER の精度の指定がなければ null（precision 0、scale -127 で届く）", () => {
+    expect(
+      resultColumnType({ dbTypeName: "NUMBER", precision: 0, scale: -127 }),
+    ).toEqual({ kind: "number", precision: null, scale: null });
+    expect(
+      resultColumnType({ dbTypeName: "NUMBER", precision: 10, scale: 2 }),
+    ).toEqual({ kind: "number", precision: 10, scale: 2 });
+  });
+
+  test("DATE と TIMESTAMP は時刻あり", () => {
+    for (const dbTypeName of ["DATE", "TIMESTAMP"]) {
+      expect(resultColumnType({ dbTypeName })).toEqual({
+        kind: "datetime",
+        hasTime: true,
       });
     }
   });

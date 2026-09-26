@@ -189,9 +189,12 @@ export class DataViewController {
         },
         {
           signal: abort.signal,
-          onColumns: (names) => {
+          onColumns: (columns) => {
             try {
-              reorder = columnReorder(names, this.columns);
+              reorder = columnReorder(
+                columns.map((column) => column.name),
+                this.columns,
+              );
             } catch (error) {
               failure = error;
               abort.abort();

@@ -142,7 +142,11 @@ describe("DataViewController", () => {
         primaryKey: [],
       }),
       query: async (_request, handlers) => {
-        handlers.onColumns(["B", "A"]);
+        const type = { kind: "number", precision: null, scale: null } as const;
+        handlers.onColumns([
+          { name: "B", type },
+          { name: "A", type },
+        ]);
         handlers.onRows([[2, 1]]);
       },
       close: async () => {},

@@ -51,6 +51,33 @@ JOIN ALL_CONS_COLUMNS cc
 WHERE c.OWNER = :owner AND c.TABLE_NAME = :name AND c.CONSTRAINT_TYPE = 'P'
 ORDER BY cc.POSITION`;
 
+/** node-oracledb の結果の列のメタデータ（使う部分だけ） */
+export type ResultMetadata = {
+  dbTypeName?: string | undefined;
+  byteSize?: number | undefined;
+  precision?: number | undefined;
+  scale?: number | undefined;
+};
+
+/** 結果の列の型（レポートの結果に使う）。describeTable の toColumnType と同じ対応にする */
+export function resultColumnType(meta: ResultMetadata): ColumnType {
+  const dataType = (meta.dbTypeName ?? "").toUpperCase();
+  const bytes = meta.byteSize ?? 0;
+  // 精度の指定がない NUMBER は precision 0、scale -127 で届く
+  const precision = meta.precision ? meta.precision : null;
+  const scale =
+    meta.scale === undefined || meta.scale === -127 ? null : meta.scale;
+  return toColumnType({
+    dataType,
+    dataLength: bytes,
+    // 各国語文字（AL16UTF16）は 1 文字 2 バイト
+    charLength: dataType.startsWith("N") ? bytes / 2 : bytes,
+    charUsed: "B",
+    precision,
+    scale: precision === null ? null : scale,
+  });
+}
+
 export type TabColumn = {
   dataType: string;
   /** バイト数 */
@@ -99,7 +126,7 @@ export function toColumnType(column: TabColumn): ColumnType {
     case "DATE":
       return { kind: "datetime", hasTime: true };
   }
-  if (/^TIMESTAMP\(\d\)$/.test(dataType)) {
+  if (/^TIMESTAMP(\(\d\))?$/.test(dataType)) {
     return { kind: "datetime", hasTime: true };
   }
   // CLOB は = で比べられない。BLOB・RAW・時差つきの TIMESTAMP・INTERVAL なども、条件では扱わない

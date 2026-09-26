@@ -75,11 +75,16 @@ const rowsIntent: QueryRequest["intent"] = {
 };
 
 function collect(signal = new AbortController().signal) {
-  const result = { names: [] as string[], chunks: [] as unknown[][][] };
+  const result = {
+    names: [] as string[],
+    types: [] as string[],
+    chunks: [] as unknown[][][],
+  };
   const handlers: QueryHandlers = {
     signal,
-    onColumns: (names) => {
-      result.names = names;
+    onColumns: (columns) => {
+      result.names = columns.map((column) => column.name);
+      result.types = columns.map((column) => column.type.kind);
     },
     onRows: (rows) => {
       result.chunks.push(rows);

@@ -18,6 +18,7 @@ import {
   LIST_OBJECTS_SQL,
   LIST_SCHEMAS_SQL,
   PRIMARY_KEY_SQL,
+  resultColumnType,
   toColumnType,
 } from "./metadata";
 import { fetchTypeHandler, toBinds, toCellValue } from "./values";
@@ -220,7 +221,12 @@ export class OracleSession implements DbSession {
         outFormat: oracledb.OUT_FORMAT_ARRAY,
         fetchTypeHandler,
       });
-      handlers.onColumns((result.metaData ?? []).map((column) => column.name));
+      handlers.onColumns(
+        (result.metaData ?? []).map((column) => ({
+          name: column.name,
+          type: resultColumnType(column),
+        })),
+      );
       const { resultSet } = result;
       if (!resultSet) return;
       try {

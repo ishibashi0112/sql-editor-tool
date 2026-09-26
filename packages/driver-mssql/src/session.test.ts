@@ -70,11 +70,16 @@ function sessionWith(respond: (sql: string, c: FakeConnection) => void) {
 }
 
 function collect(signal = new AbortController().signal) {
-  const result = { names: [] as string[], rows: [] as unknown[][] };
+  const result = {
+    names: [] as string[],
+    types: [] as string[],
+    rows: [] as unknown[][],
+  };
   const handlers: QueryHandlers = {
     signal,
-    onColumns: (names) => {
-      result.names = names;
+    onColumns: (columns) => {
+      result.names = columns.map((column) => column.name);
+      result.types = columns.map((column) => column.type.kind);
     },
     onRows: (rows) => {
       result.rows.push(...rows);
@@ -108,6 +113,7 @@ describe("MssqlSession.query", () => {
       handlers,
     );
     expect(result.names).toEqual(["ORDER_NO", "ORDERED_AT", "SHIPPED"]);
+    expect(result.types).toEqual(["string", "datetime", "number"]);
     expect(result.rows).toEqual([
       ["A001", "2026-09-01 10:00:00", 1],
       ["A002", null, 0],
