@@ -434,6 +434,20 @@ export function reportStatement(
   return prepare(dialect, text, { what: "SQL", resolve, wrap: false }).body;
 }
 
+/**
+ * 選択肢の候補を取る SQL（D-34）を、包まずにそのまま実行する形にする。
+ * :名前 はまだ使えない（ほかの入力欄の値で候補を絞るのは、必要になったら考える）
+ */
+export function optionsStatement(dialect: Dialect, text: string): Sql {
+  const named = tokenize(dialect, text).find((t) => t.kind === "named");
+  if (named) {
+    throw new QueryBuildError(
+      `候補の SQL には :名前 は使えません（${named.text}）`,
+    );
+  }
+  return prepare(dialect, text, { what: "候補の SQL", wrap: false }).body;
+}
+
 /** SQL の中の :名前 の名前（: は除く）。初めに出てきた順、重複なし */
 export function namedParams(dialect: Dialect, text: string): string[] {
   const names = tokenize(dialect, text)

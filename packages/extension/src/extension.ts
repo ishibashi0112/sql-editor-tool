@@ -116,6 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
             session,
             table: node.table,
             demo: node.profile.driver === "demo",
+            state: context.globalState,
           });
         } catch (error) {
           void vscode.window.showErrorMessage(

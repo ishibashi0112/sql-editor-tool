@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { reportParamProbe } from "@sql-editor-tool/core";
 import {
   isAbortError,
   type QueryHandlers,
@@ -290,5 +291,127 @@ describe("MssqlSession のメタデータ", () => {
     await expect(
       session.describeTable({ schema: "APP", name: "NO_SUCH" }),
     ).rejects.toThrow("見つかりません");
+  });
+});
+
+describe("MssqlSession.guessParamTypes（D-35）", () => {
+  // 例の表名・列名は架空
+  const SQL = `SELECT * FROM 受注
+WHERE 受注日 >= :開始日
+  AND (:得意先 IS NULL OR 得意先コード = :得意先)
+  AND 出荷日 = COALESCE(:出荷日, 出荷日)`;
+
+  /** sp_describe_undeclared_parameters の結果の行（使う列だけ値を入れる） */
+  const described = (name: string, typeName: string, maxLength: number) => [
+    1,
+    name,
+    0,
+    typeName,
+    maxLength,
+    0,
+    0,
+  ];
+
+  test("IS NULL の出現を宣言し、推定できない出現はエラーが挙げた変数を宣言に回して推定し直す", async () => {
+    const calls: { sql: string; params: unknown }[] = [];
+    const { session } = sessionWith((sql, c) => {
+      const request = c.requests.at(-1);
+      const params = request?.parameters.find((p) => p.name === "params")
+        ?.value as string | null;
+      calls.push({ sql, params });
+      if (!params?.includes("@p4")) {
+        c.finish(
+          new Error(
+            "The type for parameter '@p4' cannot be deduced in this context.",
+          ),
+        );
+        return;
+      }
+      c.columns([]);
+      c.row(described("@p1", "nvarchar(4000)", 8000));
+      c.row(described("@p3", "nvarchar(8)", 16));
+      c.finish();
+    });
+    const guesses = await session.guessParamTypes(
+      reportParamProbe("mssql", SQL),
+    );
+    expect(guesses).toEqual({
+      p1: { kind: "string", length: 4000 },
+      p3: { kind: "string", length: 8 },
+    });
+    expect(calls).toEqual([
+      {
+        sql: "EXEC sys.sp_describe_undeclared_parameters @tsql = @tsql, @params = @params",
+        params: "@p2 nvarchar(4000)",
+      },
+      {
+        sql: "EXEC sys.sp_describe_undeclared_parameters @tsql = @tsql, @params = @params",
+        params: "@p2 nvarchar(4000), @p4 nvarchar(4000)",
+      },
+    ]);
+  });
+
+  test("宣言する変数がなければ @params は NULL。@tsql には :名前 を出現ごとの変数にした SQL を渡す", async () => {
+    const seen: unknown[] = [];
+    const { session } = sessionWith((_, c) => {
+      const request = c.requests.at(-1);
+      seen.push(...(request?.parameters.map((p) => [p.name, p.value]) ?? []));
+      c.columns([]);
+      c.row(described("@p1", "datetime", 8));
+      c.row(described("@p2", "decimal(38,19)", 17));
+      c.finish();
+    });
+    const guesses = await session.guessParamTypes(
+      reportParamProbe("mssql", "SELECT * FROM t WHERE d >= :d AND n = :n"),
+    );
+    expect(seen).toEqual([
+      ["tsql", "SELECT * FROM t WHERE d >= @p1 AND n = @p2"],
+      ["params", null],
+    ]);
+    expect(guesses).toEqual({ p1: { kind: "date" }, p2: { kind: "number" } });
+  });
+
+  test("変数を挙げないエラー（SQL の誤りなど）なら、推定をあきらめて空を返す", async () => {
+    let count = 0;
+    const { session } = sessionWith((_, c) => {
+      count += 1;
+      c.finish(
+        new AggregateError(
+          [new Error("Invalid object name '受注x'."), new Error("@p1")],
+          "",
+        ),
+      );
+    });
+    expect(
+      await session.guessParamTypes(
+        reportParamProbe("mssql", "SELECT * FROM 受注x WHERE a = :a"),
+      ),
+    ).toEqual({});
+    expect(count).toBe(1);
+  });
+
+  test("同じ変数でまた失敗したら、あきらめる（繰り返さない）", async () => {
+    let count = 0;
+    const { session } = sessionWith((_, c) => {
+      count += 1;
+      c.finish(new Error("The parameter type for '@p1' cannot be deduced."));
+    });
+    expect(
+      await session.guessParamTypes(
+        reportParamProbe("mssql", "SELECT * FROM t WHERE a = :a"),
+      ),
+    ).toEqual({});
+    expect(count).toBe(2);
+  });
+
+  test("読み取り専用でない SQL は、推定にも送らない", async () => {
+    const { session, connections } = sessionWith((_, c) => c.finish());
+    await expect(
+      session.guessParamTypes({
+        sql: "DELETE FROM t WHERE a = @p1",
+        occurrences: [{ placeholder: "p1", name: "a", nullCheck: false }],
+      }),
+    ).rejects.toThrow();
+    expect(connections.flatMap((c) => c.requests)).toEqual([]);
   });
 });

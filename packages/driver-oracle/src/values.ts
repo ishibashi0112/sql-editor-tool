@@ -74,9 +74,10 @@ export function toCellValue(value: unknown): CellValue {
   }
   if (value instanceof Uint8Array) return formatBinary(value);
   if (typeof value === "object" && isLob(value)) {
-    // 表示の対象外（§13.2）。ロケーターはすぐに解放する
+    // 表示の対象外（§13.2）。ロケーターはすぐに解放する（解放すると長さを読めなくなるので、先に読む）
+    const { length } = value;
     value.destroy();
-    return `（BLOB ${value.length} バイト）`;
+    return `（BLOB ${length} バイト）`;
   }
   // INTERVAL など
   try {
@@ -101,9 +102,13 @@ function toBind(param: BoundParam): oracledb.BindParameter {
   switch (type.kind) {
     case "string":
       return {
-        type: type.unicode
-          ? oracledb.DB_TYPE_NVARCHAR
-          : oracledb.DB_TYPE_VARCHAR,
+        type: type.fixedChar
+          ? type.unicode
+            ? oracledb.DB_TYPE_NCHAR
+            : oracledb.DB_TYPE_CHAR
+          : type.unicode
+            ? oracledb.DB_TYPE_NVARCHAR
+            : oracledb.DB_TYPE_VARCHAR,
         val: value === null ? null : String(value),
       };
     case "integer":

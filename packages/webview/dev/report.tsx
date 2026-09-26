@@ -16,12 +16,18 @@ import type { HostApi } from "../src/hostApi";
 import { ReportApp } from "../src/report/ReportApp";
 
 const query = new URLSearchParams(location.search);
-// デモのテーブル ORDERS を使う架空のレポート
+// デモのテーブル ORDERS を使う架空のレポート。
+// 開始日と数量は種類を書いていないので、デモ接続の推定（名前から決める）で yyyymmdd の日付と数値になる
 let text = `/* @report
 {
   "params": {
-    "開始日": { "label": "受注日（から）", "type": "ymd" },
-    "得意先": { "required": false }
+    "開始日": { "label": "受注日（から）", "default": "月初-1か月" },
+    "得意先": {
+      "type": "select",
+      "required": false,
+      "options": "SELECT [CUST_CD], [CUST_NAME] FROM [APP].[CUSTOMERS] ORDER BY [CUST_CD]"
+    },
+    "数量": { "required": false }
   }
 }
 */
@@ -29,6 +35,7 @@ SELECT *
 FROM [APP].[ORDERS]
 WHERE [ORDER_YMD] >= :開始日
   AND (:得意先 IS NULL OR [CUST_CD] = :得意先)
+  AND (:数量 IS NULL OR [QTY] >= :数量)
 ORDER BY [ORDER_NO]`;
 
 const demo: ReportConnection = { name: "デモ", dialect: "mssql", demo: true };

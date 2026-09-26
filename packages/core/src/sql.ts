@@ -6,7 +6,15 @@ import { QueryBuildError } from "./errors";
 
 /** バインド変数の型。ドライバのアダプタがこれを見て DB 側の型を決める */
 export type ParamType =
-  | { kind: "string"; unicode: boolean }
+  | {
+      kind: "string";
+      unicode: boolean;
+      /**
+       * 固定長の文字（Oracle の CHAR / NCHAR）としてバインドする。CHAR 列と空白を埋めて比べられ（値を直に書いたときと同じ）、
+       * VARCHAR2 列の索引も効く。Oracle のレポートの文字列に使う（D-38）。SQL Server のドライバは使わない
+       */
+      fixedChar?: boolean;
+    }
   | { kind: "number" }
   | { kind: "integer" };
 

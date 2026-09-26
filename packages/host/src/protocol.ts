@@ -4,6 +4,7 @@ import type {
   ColumnFilterValue,
   ColumnInfo,
   DialectName,
+  SemanticType,
   SortEntry,
 } from "@sql-editor-tool/core";
 import type { CellValue } from "./session";
@@ -22,6 +23,14 @@ export type ViewInit = {
   maxRows: number;
   /** デモ接続。SQL は作るが、DB で取り直すときに条件で絞り込まない（画面の絞り込みは効く） */
   demo: boolean;
+  /** DB の主キー。ないときは空で、そのときだけ「⚙ 列」でキーを指定できる（D-36） */
+  primaryKey: string[];
+  /** yyyymmdd の日付らしい列で、まだ日付として扱っていないもの（「⚙ 列」で（候補）と出す） */
+  candidates: string[];
+  /** 開いたときに案内する候補。列の設定を一度も保存していないテーブルだけ（D-37）。なければ空 */
+  suggestion: string[];
+  /** 列の設定を保存したことがある（ないときは、「⚙ 列」で候補を日付にした状態から始める） */
+  settingsSaved: boolean;
 };
 
 export type SqlPreview =
@@ -67,4 +76,14 @@ export type FromWebview =
    */
   | { type: "execute"; mode: "all" | "filtered" }
   | { type: "cancel" }
-  | { type: "copySql"; variant: "bind" | "literal" };
+  | { type: "copySql"; variant: "bind" | "literal" }
+  /** 列の設定を保存する（D-36）。semantic は意味型を当てる列、keyColumns は主キーの代わりのキー */
+  | {
+      type: "saveColumnSettings";
+      semantic: Record<string, SemanticType>;
+      keyColumns: string[];
+    }
+  /** 案内の候補を、まとめて日付として扱う（D-37） */
+  | { type: "acceptSuggestion" }
+  /** 案内の候補を使わない（このテーブルでは、もう案内しない） */
+  | { type: "dismissSuggestion" };

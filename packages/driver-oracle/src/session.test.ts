@@ -17,6 +17,7 @@ type Reply = { columns: string[]; rows: unknown[][] };
 class FakeConnection implements OracleConnection {
   readonly executed: { sql: string; binds: oracledb.BindParameters }[] = [];
   breakCount = 0;
+  pingCount = 0;
   closedWith: { drop: boolean } | null = null;
   resultSetClosed = false;
   /** getRows が呼ばれたときに実行する処理（中断の確認用） */
@@ -47,6 +48,14 @@ class FakeConnection implements OracleConnection {
 
   async break(): Promise<void> {
     this.breakCount += 1;
+  }
+
+  async ping(): Promise<void> {
+    this.pingCount += 1;
+    // 実際の接続では、break() の後の最初の往復で中止の知らせ（ORA-01013）が届く
+    if (this.breakCount > 0 && this.pingCount === 1) {
+      throw new Error("ORA-01013: user requested cancel of current operation");
+    }
   }
 
   async close(options: { drop: boolean }): Promise<void> {
@@ -142,6 +151,8 @@ describe("OracleSession.query", () => {
     await expect(running).rejects.toSatisfy(isAbortError);
     expect(result.chunks).toHaveLength(1);
     expect(connections[0]?.breakCount).toBe(1);
+    // 中止の知らせを ping で受け切ってから閉じる（次に使う文が ORA-01013 にならないように）
+    expect(connections[0]?.pingCount).toBe(1);
     expect(connections[0]?.closedWith).toEqual({ drop: true });
   });
 
@@ -155,6 +166,7 @@ describe("OracleSession.query", () => {
         collect().handlers,
       ),
     ).rejects.toThrow("ORA-00942");
+    expect(connections[0]?.pingCount).toBe(0);
     expect(connections[0]?.closedWith).toEqual({ drop: false });
   });
 

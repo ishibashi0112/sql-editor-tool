@@ -1,3 +1,4 @@
+import type { TableSettings } from "@sql-editor-tool/core";
 import { describe, expect, test } from "vitest";
 import { DataViewController, type DataViewSettings } from "./dataView";
 import { DemoSession } from "./demo/demoSession";
@@ -201,5 +202,130 @@ describe("DataViewController", () => {
     await controller.handle({ type: "copySql", variant: "literal" });
     expect(copied[0]).toContain("[CUST_CD] = @p2");
     expect(copied[1]).toContain("[CUST_CD] = 'C00001'");
+  });
+});
+
+describe("列の設定（D-36・D-37）", () => {
+  function withStore(
+    name: string,
+    initial: unknown = undefined,
+  ): ReturnType<typeof setup> & { saved: TableSettings[] } {
+    const saved: TableSettings[] = [];
+    const messages: ToWebview[] = [];
+    let stored = initial;
+    const controller = new DataViewController({
+      session: new DemoSession({ dialect: "mssql", chunkDelayMs: 0 }),
+      table: { schema: "APP", name },
+      settings: { maxRows: 100000 },
+      demo: true,
+      post: (message) => messages.push(message),
+      copyText: async () => {},
+      tableSettings: {
+        load: () => stored,
+        save: async (settings) => {
+          stored = settings;
+          saved.push(settings);
+        },
+      },
+    });
+    const ofType = <T extends ToWebview["type"]>(type: T) =>
+      messages.filter(
+        (m): m is Extract<ToWebview, { type: T }> => m.type === type,
+      );
+    return { controller, messages, copied: [], ofType, saved };
+  }
+
+  test("設定を保存したことがなければ、日付らしい列を案内する", async () => {
+    const { controller, ofType } = withStore("ORDERS");
+    await controller.handle({ type: "ready" });
+    const view = ofType("init")[0]?.view;
+    expect(view?.suggestion).toEqual(["ORDER_YMD", "SHIP_YMD"]);
+    expect(view?.candidates).toEqual(["ORDER_YMD", "SHIP_YMD"]);
+    expect(view?.settingsSaved).toBe(false);
+    expect(view?.primaryKey).toEqual(["ORDER_NO", "LINE_NO"]);
+  });
+
+  test("案内を受けると、候補を日付として扱って保存し、画面を作り直す（絞り込みは外す）", async () => {
+    const { controller, ofType, saved } = withStore("ORDERS");
+    await controller.handle({ type: "ready" });
+    await controller.handle({
+      type: "conditionsChanged",
+      filters: { STATUS: { kind: "set", values: ["10"] } },
+      sort: [],
+    });
+    await controller.handle({ type: "acceptSuggestion" });
+    expect(saved).toEqual([
+      {
+        semantic: {
+          ORDER_YMD: { kind: "date", format: "yyyymmdd" },
+          SHIP_YMD: { kind: "date", format: "yyyymmdd" },
+        },
+      },
+    ]);
+    const view = ofType("init").at(-1)?.view;
+    expect(view?.columns.filter((c) => c.semantic).map((c) => c.name)).toEqual([
+      "ORDER_YMD",
+      "SHIP_YMD",
+    ]);
+    expect(view?.suggestion).toEqual([]);
+    expect(view?.candidates).toEqual([]);
+    const preview = ofType("preview").at(-1)?.preview;
+    expect(preview?.ok && preview.sql).not.toContain("WHERE");
+  });
+
+  test("日付として扱う列の条件は、yyyymmdd の文字列で比べる", async () => {
+    const { controller, ofType } = withStore("ORDERS", {
+      semantic: { ORDER_YMD: { kind: "date", format: "yyyymmdd" } },
+    });
+    await controller.handle({ type: "ready" });
+    expect(ofType("init")[0]?.view.suggestion).toEqual([]);
+    await controller.handle({
+      type: "conditionsChanged",
+      filters: {
+        ORDER_YMD: {
+          kind: "dateSet",
+          condition: { mode: "onOrAfter", value: "2026-09-01" },
+          set: null,
+        },
+      },
+      sort: [],
+    });
+    const preview = ofType("preview").at(-1)?.preview;
+    expect(preview?.ok && preview.literalSql).toContain(
+      "[ORDER_YMD] >= '20260901'",
+    );
+  });
+
+  test("案内を使わないと、保存するが画面は作り直さない", async () => {
+    const { controller, ofType, saved } = withStore("ORDERS");
+    await controller.handle({ type: "ready" });
+    await controller.handle({ type: "dismissSuggestion" });
+    expect(saved).toEqual([{ suggestionDismissed: true }]);
+    expect(ofType("init")).toHaveLength(1);
+  });
+
+  test("主キーのないビューでは、指定したキーの順で取る。主キーがあれば指定は無視する", async () => {
+    const view = withStore("V_OPEN_ORDERS");
+    await view.controller.handle({ type: "ready" });
+    await view.controller.handle({
+      type: "saveColumnSettings",
+      semantic: {},
+      keyColumns: ["ORDER_NO"],
+    });
+    const init = view.ofType("init").at(-1)?.view;
+    expect(init?.columns.filter((c) => c.isKey).map((c) => c.name)).toEqual([
+      "ORDER_NO",
+    ]);
+    const preview = view.ofType("preview").at(-1)?.preview;
+    expect(preview?.ok && preview.sql).toContain("ORDER BY [ORDER_NO]");
+
+    const table = withStore("ORDERS");
+    await table.controller.handle({ type: "ready" });
+    await table.controller.handle({
+      type: "saveColumnSettings",
+      semantic: {},
+      keyColumns: ["STATUS"],
+    });
+    expect(table.saved).toEqual([{}]);
   });
 });

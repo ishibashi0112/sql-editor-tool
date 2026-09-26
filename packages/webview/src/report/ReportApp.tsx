@@ -1,24 +1,30 @@
-// レポート（SQL＋フォーム）の画面（docs/handover.md §16、D-31）。
+// レポート（SQL＋フォーム）の画面（docs/handover.md §16、D-31〜D-35）。
 // 上にフォーム（入力欄を横に並べる）、その下に結果。入力欄の設定は「⚙ 入力欄」で一覧の表にして直す
 
-import type {
-  ReportParam,
-  ReportParamConfig,
-  ReportParamType,
-  SortEntry,
+import {
+  isRelativeDate,
+  type ReportParam,
+  type ReportParamConfig,
+  type ReportParamType,
+  resolveDateValue,
+  type SortEntry,
 } from "@sql-editor-tool/core";
 import type {
   FromReport,
   ReportFormValues,
   ReportInit,
+  ReportOptionsState,
   SqlPreview,
   ToReport,
   ViewColumn,
 } from "@sql-editor-tool/host";
 import {
   type FormEvent,
+  Fragment,
   useCallback,
   useEffect,
+  useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -31,6 +37,7 @@ import {
   useQueryResult,
 } from "../result";
 import type { Filters } from "../widened";
+import { OptionsField } from "./OptionsField";
 
 export type ReportApi = HostApi<FromReport, ToReport>;
 
@@ -39,7 +46,10 @@ const TYPE_LABELS: Record<ReportParamType, string> = {
   number: "数値",
   date: "日付（日付型の列と比べる）",
   ymd: "日付（yyyymmdd の文字列の列と比べる）",
+  select: "選択肢（候補を SQL で取る）",
 };
+
+const isDateType = (type: ReportParamType) => type === "date" || type === "ymd";
 
 export function ReportApp({ api }: { api: ReportApi }) {
   const [view, setView] = useState<ReportInit | null>(null);
@@ -48,6 +58,10 @@ export function ReportApp({ api }: { api: ReportApi }) {
   const [preview, setPreview] = useState<SqlPreview | null>(null);
   const [columns, setColumns] = useState<ViewColumn[]>([]);
   const [editing, setEditing] = useState(false);
+  /** 選択肢の入力欄の候補（入力欄の名前 → 取得の状況） */
+  const [options, setOptions] = useState<Record<string, ReportOptionsState>>(
+    {},
+  );
   const result = useQueryResult();
   const handleQuery = result.handle;
   const { queryIdRef } = result;
@@ -63,7 +77,14 @@ export function ReportApp({ api }: { api: ReportApi }) {
         case "init":
           valuesRef.current = { ...message.view.values };
           setView(message.view);
+          setOptions(message.view.options);
           setVersion((v) => v + 1);
+          return;
+        case "options":
+          setOptions((current) => ({
+            ...current,
+            [message.name]: message.state,
+          }));
           return;
         case "preview":
           setPreview(message.preview);
@@ -157,6 +178,7 @@ export function ReportApp({ api }: { api: ReportApi }) {
               key={param.name}
               param={param}
               defaultValue={view.values[param.name] ?? ""}
+              options={options[param.name]}
               onChange={onValue}
               onEnter={execute}
             />
@@ -213,15 +235,36 @@ export function ReportApp({ api }: { api: ReportApi }) {
 function ParamField({
   param,
   defaultValue,
+  options,
   onChange,
   onEnter,
 }: {
   param: ReportParam;
   defaultValue: string;
+  options: ReportOptionsState | undefined;
   onChange(name: string, value: string): void;
   onEnter(): void;
 }) {
-  const isDate = param.type === "date" || param.type === "ymd";
+  const labelId = useId();
+  if (param.type === "select") {
+    return (
+      <div className="field">
+        <span className="label" id={labelId}>
+          {param.label}
+          {param.required && <span className="required">*</span>}
+        </span>
+        <OptionsField
+          labelId={labelId}
+          defaultValue={defaultValue}
+          state={options}
+          required={param.required}
+          onChange={(value) => onChange(param.name, value)}
+          onEnter={onEnter}
+        />
+      </div>
+    );
+  }
+  const isDate = isDateType(param.type);
   return (
     <label className="field">
       <span className="label">
@@ -254,7 +297,10 @@ function toDateInput(value: string): string {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : value.trim().replaceAll("/", "-");
 }
 
-/** 入力欄の設定を一覧の表で直す（D-31）。入力欄は非制御にして、保存するときに読む */
+/**
+ * 入力欄の設定を一覧の表で直す（D-31）。入力欄は非制御にして、保存するときに読む。
+ * 種類だけは、選択肢の候補の SQL の欄と既定値の書き方の案内を切り替えるので、状態で持つ
+ */
 function ParamSettings({
   params,
   onSave,
@@ -264,22 +310,39 @@ function ParamSettings({
   onSave(config: Record<string, ReportParamConfig>): void;
   onCancel(): void;
 }) {
+  const [types, setTypes] = useState(() => params.map((p) => p.type));
+  const [defaults, setDefaults] = useState(() => params.map((p) => p.default));
+  const [error, setError] = useState<string | null>(null);
+  const now = useMemo(() => new Date(), []);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const config: Record<string, ReportParamConfig> = {};
-    params.forEach((param, i) => {
+    for (const [i, param] of params.entries()) {
       const label = String(data.get(`label-${i}`) ?? "").trim();
-      const type = String(data.get(`type-${i}`) ?? "text") as ReportParamType;
+      const type = types[i] ?? "text";
       const value = String(data.get(`default-${i}`) ?? "").trim();
+      const options = String(data.get(`options-${i}`) ?? "").trim();
+      if (value && isDateType(type) && !resolveDateValue(value, now)) {
+        setError(
+          `「${param.name}」の既定値「${value}」は日付ではありません（2026-09-01、今日、月初-1か月 などの形で書いてください）`,
+        );
+        return;
+      }
+      if (type === "select" && !options) {
+        setError(`「${param.name}」の候補の SQL を書いてください`);
+        return;
+      }
       const c: ReportParamConfig = {
         type,
         required: data.get(`required-${i}`) === "on",
       };
       if (label && label !== param.name) c.label = label;
       if (value) c.default = value;
+      if (type === "select") c.options = options;
       config[param.name] = c;
-    });
+    }
     onSave(config);
   };
   return (
@@ -295,46 +358,115 @@ function ParamSettings({
           </tr>
         </thead>
         <tbody>
-          {params.map((param, i) => (
-            <tr key={param.name}>
-              <td className="name">:{param.name}</td>
-              <td>
-                <input
-                  name={`label-${i}`}
-                  type="text"
-                  placeholder={param.name}
-                  defaultValue={param.label === param.name ? "" : param.label}
-                />
-              </td>
-              <td>
-                <select name={`type-${i}`} defaultValue={param.type}>
-                  {Object.entries(TYPE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="check">
-                <input
-                  name={`required-${i}`}
-                  type="checkbox"
-                  defaultChecked={param.required}
-                  aria-label={`${param.name} を必須にする`}
-                />
-              </td>
-              <td>
-                <input
-                  name={`default-${i}`}
-                  type="text"
-                  placeholder="なし（日付は 2026-09-01 の形）"
-                  defaultValue={param.default}
-                />
-              </td>
-            </tr>
-          ))}
+          {params.map((param, i) => {
+            const type = types[i] ?? param.type;
+            const value = defaults[i] ?? "";
+            const resolved =
+              isDateType(type) && isRelativeDate(value)
+                ? resolveDateValue(value, now)
+                : null;
+            return (
+              <Fragment key={param.name}>
+                <tr>
+                  <td className="name">:{param.name}</td>
+                  <td>
+                    <input
+                      name={`label-${i}`}
+                      type="text"
+                      placeholder={param.name}
+                      defaultValue={
+                        param.label === param.name ? "" : param.label
+                      }
+                    />
+                  </td>
+                  <td>
+                    <select
+                      name={`type-${i}`}
+                      value={type}
+                      onChange={(event) => {
+                        const next = event.currentTarget
+                          .value as ReportParamType;
+                        setTypes((current) =>
+                          current.map((t, j) => (j === i ? next : t)),
+                        );
+                      }}
+                    >
+                      {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                    {param.guessed && type === param.type && (
+                      <span
+                        className="guessed"
+                        title="SQL Server が SQL から推定した種類です。保存すると、この種類を書き込みます"
+                      >
+                        （推定）
+                      </span>
+                    )}
+                  </td>
+                  <td className="check">
+                    <input
+                      name={`required-${i}`}
+                      type="checkbox"
+                      defaultChecked={param.required}
+                      aria-label={`${param.name} を必須にする`}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      name={`default-${i}`}
+                      type="text"
+                      placeholder={
+                        isDateType(type)
+                          ? "なし（例：2026-09-01、今日、月初-1か月）"
+                          : "なし"
+                      }
+                      defaultValue={param.default}
+                      onInput={(event) => {
+                        const next = event.currentTarget.value;
+                        setDefaults((current) =>
+                          current.map((d, j) => (j === i ? next : d)),
+                        );
+                      }}
+                    />
+                    {resolved && (
+                      <span className="resolved">→ {resolved}（今日なら）</span>
+                    )}
+                  </td>
+                </tr>
+                {type === "select" && (
+                  <tr className="options-row">
+                    <td />
+                    <td colSpan={4}>
+                      <label>
+                        <span className="status">
+                          候補の SQL（1 列目＝値、2
+                          列目＝表示名。開いたときに実行します）
+                        </span>
+                        <textarea
+                          name={`options-${i}`}
+                          rows={3}
+                          spellCheck={false}
+                          placeholder="SELECT コード, 名前 FROM 得意先 ORDER BY コード"
+                          defaultValue={param.options}
+                        />
+                      </label>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
+      {error && <div className="notice error-notice">{error}</div>}
+      <p className="status help">
+        日付の既定値には、今日・月初・月末・年初・年末・年度初（4 月 1
+        日）・年度末と、±N日・±Nか月・±N年を書けます（例：月初-1か月、今日-7日。昨日・前月初・前月末・翌月初
+        なども可）。レポートを開くたびに計算します
+      </p>
       <div className="buttons">
         <button type="submit">保存</button>
         <button type="button" className="secondary" onClick={onCancel}>

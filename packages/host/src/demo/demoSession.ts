@@ -1,7 +1,14 @@
 // デモ接続。DB なしで画面の動きを確かめるためのもの（Mac では社内 DB に繋げないため）。
 // SQL は解釈しない。QueryRequest の intent から結果を作るので、WHERE の条件では絞り込まない
 
-import type { DialectName, SortEntry, TableRef } from "@sql-editor-tool/core";
+import {
+  type DbParamGuess,
+  type DialectName,
+  looksLikeDateName,
+  type ReportParamProbe,
+  type SortEntry,
+  type TableRef,
+} from "@sql-editor-tool/core";
 import {
   abortError,
   type CellValue,
@@ -69,6 +76,26 @@ export class DemoSession implements DbSession {
       await this.wait(handlers.signal);
       handlers.onRows(rows.slice(i, i + CHUNK_SIZE));
     }
+  }
+
+  /**
+   * 入力欄の種類の推定（D-35）の代わり。SQL は解釈しないので、名前だけで決める（画面を確かめるためのもの）。
+   * 日付らしい名前は yyyymmdd の文字列、数・額・件を含む名前は数値、ほかは文字列。Oracle は推定しない（実際と同じ）
+   */
+  async guessParamTypes(
+    probe: ReportParamProbe,
+  ): Promise<Record<string, DbParamGuess>> {
+    if (this.dialect !== "mssql") return {};
+    return Object.fromEntries(
+      probe.occurrences.map(({ placeholder, name }) => [
+        placeholder,
+        looksLikeDateName(name)
+          ? { kind: "string", length: 8 }
+          : /[数額件]|qty|amount/i.test(name)
+            ? { kind: "number" }
+            : { kind: "string", length: 20 },
+      ]),
+    );
   }
 
   async close(): Promise<void> {}

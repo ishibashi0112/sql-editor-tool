@@ -1,7 +1,7 @@
 // データビューの Webview パネル。制御は host の DataViewController に任せ、ここは VS Code とのつなぎだけ
 
 import { randomBytes } from "node:crypto";
-import type { TableRef } from "@sql-editor-tool/core";
+import type { TableRef, TableSettings } from "@sql-editor-tool/core";
 import {
   DataViewController,
   type DataViewSettings,
@@ -16,10 +16,22 @@ export type OpenDataViewInput = {
   session: DbSession;
   table: TableRef;
   demo: boolean;
+  /** 列の設定（D-36）を保存する場所 */
+  state: vscode.Memento;
 };
 
+const TABLE_SETTINGS_KEY = "sqlEditorTool.tableSettings";
+
+/** 列の設定は、接続名・スキーマ・テーブルごとに持つ（接続の ID は PC ごとに違うので、レポートと同じく名前で結び付ける） */
+function tableSettingsKey(connectionName: string, table: TableRef): string {
+  return JSON.stringify([connectionName, table.schema, table.name]);
+}
+
 export function openDataView(input: OpenDataViewInput): void {
-  const { extensionUri, session, table } = input;
+  const { extensionUri, session, table, state } = input;
+  const settingsKey = tableSettingsKey(input.connectionName, table);
+  const allSettings = () =>
+    state.get<Record<string, TableSettings>>(TABLE_SETTINGS_KEY, {});
   const webviewRoot = vscode.Uri.joinPath(extensionUri, "dist", "webview");
   const panel = vscode.window.createWebviewPanel(
     "sqlEditorTool.dataView",
@@ -43,6 +55,18 @@ export function openDataView(input: OpenDataViewInput): void {
     copyText: async (text) => {
       await vscode.env.clipboard.writeText(text);
       void vscode.window.setStatusBarMessage("SQL をコピーしました", 3000);
+    },
+    tableSettings: {
+      load: () => {
+        const all = allSettings();
+        return Object.hasOwn(all, settingsKey) ? all[settingsKey] : undefined;
+      },
+      save: async (settings) => {
+        await state.update(TABLE_SETTINGS_KEY, {
+          ...allSettings(),
+          [settingsKey]: settings,
+        });
+      },
     },
   });
   const subscription = panel.webview.onDidReceiveMessage(

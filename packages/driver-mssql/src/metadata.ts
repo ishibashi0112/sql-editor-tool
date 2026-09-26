@@ -1,7 +1,7 @@
 // スキーマ・テーブル・列の情報を取る SQL と、DB の型 → ColumnType の対応。
 // SQL Server 2012 で使えるカタログビュー（sys.*）だけを使う。見えるのは参照権限のあるものだけ
 
-import type { ColumnType } from "@sql-editor-tool/core";
+import type { ColumnType, DbParamGuess } from "@sql-editor-tool/core";
 import { EXACT_DIGITS } from "@sql-editor-tool/host";
 
 /** テーブルかビューがあるスキーマ */
@@ -47,6 +47,54 @@ JOIN sys.objects o ON o.object_id = i.object_id
 JOIN sys.schemas s ON s.schema_id = o.schema_id
 WHERE s.name = @schema AND o.name = @name AND i.is_primary_key = 1
 ORDER BY ic.key_ordinal`;
+
+/**
+ * 入力欄の種類の推定（D-35）。@tsql の中の未宣言のバインド変数の型を SQL Server に推定させる。
+ * @tsql は解析するだけで実行しない。@params には推定しない変数を宣言する（なければ NULL）。
+ * 結果の列の並び（parameter_ordinal, name, suggested_system_type_id, suggested_system_type_name,
+ * suggested_max_length, …）は SQL Server 2012 から同じ
+ */
+export const DESCRIBE_PARAMS_SQL =
+  "EXEC sys.sp_describe_undeclared_parameters @tsql = @tsql, @params = @params";
+
+/**
+ * sp_describe_undeclared_parameters の型（'nvarchar(8)'・'decimal(38,19)'・'datetime' など）→ DB に依存しない形。
+ * maxLength はバイト数（nvarchar / nchar は文字数の 2 倍、MAX なら -1）
+ */
+export function paramGuessOf(
+  typeName: string,
+  maxLength: number,
+): DbParamGuess {
+  const base = typeName.toLowerCase().replace(/\(.*$/, "").trim();
+  switch (base) {
+    case "char":
+    case "varchar":
+      return { kind: "string", length: maxLength < 0 ? null : maxLength };
+    case "nchar":
+    case "nvarchar":
+      return { kind: "string", length: maxLength < 0 ? null : maxLength / 2 };
+    case "tinyint":
+    case "smallint":
+    case "int":
+    case "bigint":
+    case "decimal":
+    case "numeric":
+    case "money":
+    case "smallmoney":
+    case "float":
+    case "real":
+    case "bit":
+      return { kind: "number" };
+    case "date":
+    case "datetime":
+    case "datetime2":
+    case "smalldatetime":
+    case "datetimeoffset":
+      return { kind: "date" };
+    default:
+      return { kind: "other" };
+  }
+}
 
 /** tedious の結果の列のメタデータ（使う部分だけ） */
 export type ResultMetadata = {
