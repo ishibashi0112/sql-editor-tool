@@ -197,8 +197,11 @@ button:disabled {
   outline: none;
 }
 
+/* 日付の入力欄と文字の入力欄の高さをそろえる */
 .form input {
   width: 160px;
+  height: 28px;
+  box-sizing: border-box;
 }
 
 .form input:focus,
