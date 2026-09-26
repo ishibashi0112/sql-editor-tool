@@ -53,8 +53,12 @@ export type OracleConnection = {
     options: oracledb.ExecuteOptions,
   ): Promise<oracledb.Result<unknown[]>>;
   break(): Promise<void>;
+  ping(): Promise<void>;
   close(options: { drop: boolean }): Promise<void>;
 };
+
+/** 中止の後始末（ping）を待つ上限。応答がなければ待たずに接続を閉じる */
+const CLEANUP_TIMEOUT_MS = 5000;
 
 export type OraclePool = {
   getConnection(): Promise<OracleConnection>;
@@ -207,10 +211,9 @@ export class OracleSession implements DbSession {
     const { signal } = handlers;
     if (signal.aborted) throw abortError();
     const connection = await this.pool.getConnection();
-    let broken = false;
+    let breaking: Promise<void> | null = null;
     const onAbort = () => {
-      broken = true;
-      connection.break().catch(() => {});
+      breaking = connection.break().catch(() => {});
     };
     signal.addEventListener("abort", onAbort, { once: true });
     try {
@@ -245,8 +248,25 @@ export class OracleSession implements DbSession {
       throw error;
     } finally {
       signal.removeEventListener("abort", onAbort);
-      // break() した接続は状態が分からないので、プールに戻さずに閉じる
-      await connection.close({ drop: broken }).catch(() => {});
+      if (breaking) {
+        // break() の後は、中止の知らせ（ORA-01013）が接続に残り、次に実行した文が失敗する。
+        // 捨てるつもりの接続もプールに戻ることがある（Thin モードで確かめた）ので、ping で知らせを受け切ってから返す
+        await breaking;
+        await withTimeout(connection.ping(), CLEANUP_TIMEOUT_MS).catch(
+          () => {},
+        );
+      }
+      await connection.close({ drop: breaking !== null }).catch(() => {});
     }
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timeout")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }

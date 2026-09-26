@@ -54,9 +54,20 @@ describe("toCellValue", () => {
 
   test("RAW は 16 進、BLOB は中身を読まずに大きさだけ出してロケーターを解放する", () => {
     expect(toCellValue(Buffer.from([255, 1]))).toBe("0xFF01");
-    const lob = { type: oracledb.DB_TYPE_BLOB, length: 2048, destroy: vi.fn() };
+    // 実際の LOB は、解放すると長さを読めなくなる
+    let destroyed = false;
+    const destroy = vi.fn(() => {
+      destroyed = true;
+    });
+    const lob = {
+      type: oracledb.DB_TYPE_BLOB,
+      get length() {
+        return destroyed ? undefined : 2048;
+      },
+      destroy,
+    };
     expect(toCellValue(lob)).toBe("（BLOB 2048 バイト）");
-    expect(lob.destroy).toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalled();
   });
 
   test("文字列・数値・NULL はそのまま", () => {
@@ -76,6 +87,26 @@ describe("toBinds", () => {
     ).toEqual({
       p1: { type: oracledb.DB_TYPE_VARCHAR, val: "A" },
       p2: { type: oracledb.DB_TYPE_NVARCHAR, val: "あ" },
+    });
+  });
+
+  test("固定長の文字（レポートの文字列、D-38）は CHAR / NCHAR", () => {
+    expect(
+      toBinds([
+        {
+          name: "p1",
+          value: "C001",
+          type: { kind: "string", unicode: false, fixedChar: true },
+        },
+        {
+          name: "p2",
+          value: null,
+          type: { kind: "string", unicode: true, fixedChar: true },
+        },
+      ]),
+    ).toEqual({
+      p1: { type: oracledb.DB_TYPE_CHAR, val: "C001" },
+      p2: { type: oracledb.DB_TYPE_NCHAR, val: null },
     });
   });
 
