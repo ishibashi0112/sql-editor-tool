@@ -45,6 +45,12 @@ export {
   type TableDescription,
 } from "./session";
 export {
+  type CompleteInput,
+  type CompletionEntry,
+  completeSql,
+  SchemaCache,
+} from "./sqlCompletion";
+export {
   type DateTimeParts,
   EXACT_DIGITS,
   formatBinary,

@@ -14,6 +14,7 @@ import {
 import { type ReportNode, ReportTree } from "./reportTree";
 import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
+import { SqlEditing } from "./sqlEditing";
 import { ConnectionTree, type TreeNode } from "./tree";
 
 let sessions: SessionManager | undefined;
@@ -33,6 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
     recent,
     state: context.globalState,
   });
+  const editing = new SqlEditing(store, manager, context.globalState);
   const openReport = (uri: vscode.Uri) =>
     reports.open(uri).catch((error: unknown) => {
       void vscode.window.showErrorMessage(
@@ -43,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     store,
     manager,
+    editing,
     vscode.window.createTreeView("sqlEditorTool.connections", {
       treeDataProvider: tree,
       showCollapseAll: true,
@@ -95,13 +98,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "sqlEditorTool.disconnect",
       async (node?: TreeNode) => {
-        if (node?.kind === "connection") await manager.close(node.profile.id);
+        if (node?.kind !== "connection") return;
+        await manager.close(node.profile.id);
+        editing.clear(node.profile.id);
       },
     ),
 
     vscode.commands.registerCommand("sqlEditorTool.refresh", () => {
       tree.refresh();
       search.reload();
+      editing.clear();
     }),
 
     vscode.commands.registerCommand(

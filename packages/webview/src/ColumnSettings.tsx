@@ -2,30 +2,12 @@
 // 主キーのないテーブル・ビューでのキーをまとめて直す（レポートの「⚙ 入力欄」と同じ形。D-31）
 
 import {
-  type ColumnType,
   canBeYmd,
+  columnTypeLabel,
   type SemanticType,
 } from "@sql-editor-tool/core";
 import type { ViewInit } from "@sql-editor-tool/host";
 import { useState } from "react";
-
-/** DB に依存しない型の表示（例：文字列(8)、数値(15,2)、日時） */
-export function typeLabel(type: ColumnType): string {
-  switch (type.kind) {
-    case "string":
-      return `${type.fixedLength ? "固定長の文字列" : "文字列"}(${type.length ?? "最大"})`;
-    case "number":
-      return type.precision === null
-        ? "数値"
-        : type.scale
-          ? `数値(${type.precision},${type.scale})`
-          : `数値(${type.precision})`;
-    case "datetime":
-      return type.hasTime ? "日時" : "日付";
-    case "other":
-      return type.dbTypeName;
-  }
-}
 
 const YMD: SemanticType = { kind: "date", format: "yyyymmdd" };
 
@@ -90,7 +72,7 @@ export function ColumnSettings({
             {columns.map((column) => (
               <tr key={column.name}>
                 <td className="name">{column.name}</td>
-                <td className="status">{typeLabel(column.type)}</td>
+                <td className="status">{columnTypeLabel(column.type)}</td>
                 <td>
                   {canBeYmd(column) ? (
                     <>
