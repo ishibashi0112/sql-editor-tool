@@ -1,14 +1,14 @@
-// データビュー（1 テーブル分の画面）のホスト側の制御。VS Code に依存しないので、ブラウザの開発用ページでも動かせる
+// データビュー（1 テーブル分の画面）のホスト側の制御。VS Code に依存しないので、ブラウザの開発用ページでも動かせる。
+// 取得した行の絞り込みと並べ替えは画面（グリッド）がすぐに行う。DB で絞り込むのは、上限で打ち切ったときに
+// 利用者が「今の絞り込みで取り直す」を選んだときだけ（D-25）
 
 import {
-  buildFilterOptionsQuery,
   buildSelect,
   type ColumnFilterValue,
   QueryBuildError,
   type QuerySource,
   type SortEntry,
   type TableRef,
-  toFilterOptions,
 } from "@sql-editor-tool/core";
 import type {
   FromWebview,
@@ -27,8 +27,6 @@ import {
 export type DataViewSettings = {
   /** 取得の上限（D-11） */
   maxRows: number;
-  /** 集合フィルタの候補の上限（D-16） */
-  filterOptionsLimit: number;
 };
 
 export type DataViewDeps = {
@@ -52,7 +50,6 @@ export class DataViewController {
   private sort: SortEntry[] = [];
   private queryId = 0;
   private running: AbortController | null = null;
-  private readonly optionRequests = new Map<number, AbortController>();
   private disposed = false;
 
   constructor(private readonly deps: DataViewDeps) {}
@@ -71,18 +68,9 @@ export class DataViewController {
         this.postPreview();
         return;
       case "execute":
-        return this.execute();
+        return this.execute(message.mode);
       case "cancel":
         this.running?.abort();
-        return;
-      case "getFilterOptions":
-        return this.filterOptions(
-          message.requestId,
-          message.columnKey,
-          message.columnFilters,
-        );
-      case "abortFilterOptions":
-        this.optionRequests.get(message.requestId)?.abort();
         return;
       case "copySql":
         return this.copySql(message.variant);
@@ -92,7 +80,6 @@ export class DataViewController {
   dispose(): void {
     this.disposed = true;
     this.running?.abort();
-    for (const request of this.optionRequests.values()) request.abort();
   }
 
   private post(message: ToWebview): void {
@@ -123,29 +110,37 @@ export class DataViewController {
     this.postPreview();
   }
 
-  /** 並べ替えの指定がなければ、主キーの順にする（行の並びを安定させるため） */
-  private effectiveSort(): SortEntry[] {
-    if (this.sort.length > 0) return this.sort;
+  /** 主キーの順。上限で打ち切ったときに、どの行を取るかを安定させるため */
+  private keySort(): SortEntry[] {
     return this.columns
       .filter((column) => column.isKey)
       .map((column) => ({ columnKey: column.name, direction: "asc" }));
   }
 
+  /** 並べ替えの指定がなければ、主キーの順にする */
+  private effectiveSort(): SortEntry[] {
+    return this.sort.length > 0 ? this.sort : this.keySort();
+  }
+
   /** 上限 + 1 件を取り、はみ出したかで上限に達したと判定する */
-  private buildRowsQuery(): Built {
+  private buildRowsQuery(
+    filters: Record<string, ColumnFilterValue>,
+    sort: SortEntry[],
+  ): Built {
     return buildSelect({
       dialect: this.deps.session.dialect,
       source: this.source,
       columns: this.columns,
-      filters: this.filters,
-      sort: this.effectiveSort(),
+      filters,
+      sort,
       limit: this.deps.settings.maxRows + 1,
     });
   }
 
+  /** 画面の絞り込みと並べ替えを WHERE と ORDER BY にした SQL（コピーして A5 などで使える） */
   private preview(): SqlPreview {
     try {
-      const built = this.buildRowsQuery();
+      const built = this.buildRowsQuery(this.filters, this.effectiveSort());
       return { ok: true, sql: built.sql, literalSql: built.literalSql };
     } catch (error) {
       if (error instanceof QueryBuildError) {
@@ -163,7 +158,7 @@ export class DataViewController {
     this.post({ type: "preview", preview: this.preview() });
   }
 
-  private async execute(): Promise<void> {
+  private async execute(mode: "all" | "filtered"): Promise<void> {
     this.running?.abort();
     const queryId = ++this.queryId;
     const abort = new AbortController();
@@ -174,10 +169,12 @@ export class DataViewController {
     let truncated = false;
     // ドライバのイベントの中で投げた例外は失われることがあるので、覚えておいて中断する
     let failure: unknown = null;
+    const filters = mode === "filtered" ? this.filters : {};
+    const sort = mode === "filtered" ? this.effectiveSort() : this.keySort();
 
-    this.post({ type: "queryStarted", queryId });
+    this.post({ type: "queryStarted", queryId, filters });
     try {
-      const built = this.buildRowsQuery();
+      const built = this.buildRowsQuery(filters, sort);
       let reorder: ((row: CellValue[]) => CellValue[]) | null = null;
       await this.deps.session.query(
         {
@@ -186,7 +183,7 @@ export class DataViewController {
           intent: {
             kind: "rows",
             source: this.source,
-            sort: this.effectiveSort(),
+            sort,
             limit: maxRows + 1,
           },
         },
@@ -236,65 +233,6 @@ export class DataViewController {
       truncated,
       elapsedMs: Date.now() - started,
     });
-  }
-
-  private async filterOptions(
-    requestId: number,
-    columnKey: string,
-    columnFilters: Record<string, ColumnFilterValue>,
-  ): Promise<void> {
-    const abort = new AbortController();
-    this.optionRequests.set(requestId, abort);
-    const limit = this.deps.settings.filterOptionsLimit;
-    try {
-      const column = this.columns.find((c) => c.name === columnKey);
-      if (!column)
-        throw new QueryBuildError(`列「${columnKey}」が見つかりません`);
-      const built = buildFilterOptionsQuery({
-        dialect: this.deps.session.dialect,
-        source: this.source,
-        columns: this.columns,
-        columnKey,
-        filters: columnFilters,
-        limit,
-      });
-      const values: unknown[] = [];
-      await this.deps.session.query(
-        {
-          sql: built.sql,
-          params: built.params,
-          intent: {
-            kind: "filterOptions",
-            source: this.source,
-            columnKey,
-            limit: limit + 1,
-          },
-        },
-        {
-          signal: abort.signal,
-          onColumns: () => {},
-          onRows: (rows) => {
-            for (const row of rows) values.push(row[0]);
-          },
-        },
-      );
-      this.post({
-        type: "filterOptions",
-        requestId,
-        result: toFilterOptions(column, values, limit),
-      });
-    } catch (error) {
-      // 中断はグリッドが popover を閉じたときなので、結果を返さない
-      if (!isAbortError(error)) {
-        this.post({
-          type: "filterOptionsFailed",
-          requestId,
-          message: errorMessage(error),
-        });
-      }
-    } finally {
-      this.optionRequests.delete(requestId);
-    }
   }
 
   private async copySql(variant: "bind" | "literal"): Promise<void> {

@@ -54,35 +54,12 @@ export class DemoSession implements DbSession {
       throw new Error("デモ接続ではベースSQL を実行できません");
     }
     const table = findTable(intent.source.table);
-    if (intent.kind === "rows") {
-      handlers.onColumns(table.columns.map((c) => c.name));
-      const rows = sortRows(table, intent.sort).slice(0, intent.limit);
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        await this.wait(handlers.signal);
-        handlers.onRows(rows.slice(i, i + CHUNK_SIZE));
-      }
-      return;
+    handlers.onColumns(table.columns.map((c) => c.name));
+    const rows = sortRows(table, intent.sort).slice(0, intent.limit);
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      await this.wait(handlers.signal);
+      handlers.onRows(rows.slice(i, i + CHUNK_SIZE));
     }
-    await this.wait(handlers.signal);
-    const index = table.columns.findIndex((c) => c.name === intent.columnKey);
-    const column = table.columns[index];
-    if (!column) throw new Error(`列「${intent.columnKey}」が見つかりません`);
-    const values = new Set<CellValue>();
-    for (const row of table.rows()) {
-      let value = row[index] ?? null;
-      // 日付型は SQL と同じく 'YYYYMMDD' にする
-      if (column.type.kind === "datetime" && typeof value === "string") {
-        value = value.slice(0, 10).replaceAll("-", "");
-      }
-      values.add(value);
-    }
-    handlers.onColumns(["OPTION_VALUE"]);
-    handlers.onRows(
-      [...values]
-        .sort(compareBlankFirst)
-        .slice(0, intent.limit)
-        .map((value) => [value]),
-    );
   }
 
   async close(): Promise<void> {}

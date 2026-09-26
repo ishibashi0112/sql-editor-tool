@@ -4,7 +4,6 @@ import type {
   ColumnFilterValue,
   ColumnInfo,
   DialectName,
-  FilterOptionsResult,
   SortEntry,
 } from "@sql-editor-tool/core";
 import type { CellValue } from "./session";
@@ -21,7 +20,7 @@ export type ViewInit = {
   columns: ViewColumn[];
   /** 取得の上限（D-11） */
   maxRows: number;
-  /** デモ接続。SQL は作るが、条件で絞り込まない */
+  /** デモ接続。SQL は作るが、DB で取り直すときに条件で絞り込まない（画面の絞り込みは効く） */
   demo: boolean;
 };
 
@@ -33,7 +32,12 @@ export type ToWebview =
   | { type: "init"; view: ViewInit }
   | { type: "initFailed"; message: string }
   | { type: "preview"; preview: SqlPreview }
-  | { type: "queryStarted"; queryId: number }
+  | {
+      type: "queryStarted";
+      queryId: number;
+      /** DB で絞り込んだ条件（WHERE にした画面の絞り込み）。条件なしで取るときは空 */
+      filters: Record<string, ColumnFilterValue>;
+    }
   | { type: "rows"; queryId: number; rows: CellValue[][] }
   | {
       type: "queryDone";
@@ -48,9 +52,7 @@ export type ToWebview =
       queryId: number;
       message: string;
       cancelled: boolean;
-    }
-  | { type: "filterOptions"; requestId: number; result: FilterOptionsResult }
-  | { type: "filterOptionsFailed"; requestId: number; message: string };
+    };
 
 export type FromWebview =
   | { type: "ready" }
@@ -59,14 +61,10 @@ export type FromWebview =
       filters: Record<string, ColumnFilterValue>;
       sort: SortEntry[];
     }
-  | { type: "execute" }
+  /**
+   * DB から取得する（D-25）。all は条件なし（主キーの順）、
+   * filtered は画面の絞り込みと並べ替えを WHERE と ORDER BY にして取り直す（上限で打ち切ったとき用）
+   */
+  | { type: "execute"; mode: "all" | "filtered" }
   | { type: "cancel" }
-  | {
-      type: "getFilterOptions";
-      requestId: number;
-      columnKey: string;
-      /** 開いている列を除いた、ほかの列のフィルタ */
-      columnFilters: Record<string, ColumnFilterValue>;
-    }
-  | { type: "abortFilterOptions"; requestId: number }
   | { type: "copySql"; variant: "bind" | "literal" };

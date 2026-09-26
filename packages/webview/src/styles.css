@@ -85,6 +85,18 @@ button:disabled {
   border-bottom: 1px solid var(--vscode-panel-border, #d0d7de);
 }
 
+/* 上限で打ち切ったとき・DB で絞り込んだ条件を外したときの案内。取り直すボタンを右に置く */
+.warning-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--vscode-inputValidation-warningBackground, #fff8c5);
+}
+
+.warning-notice span {
+  flex: 1;
+}
+
 .preview {
   border-bottom: 1px solid var(--vscode-panel-border, #d0d7de);
   padding: 4px 12px;

@@ -31,14 +31,12 @@ export type TableDescription = {
 export type QueryRequest = {
   sql: string;
   params: BoundParam[];
-  intent:
-    | { kind: "rows"; source: QuerySource; sort: SortEntry[]; limit: number }
-    | {
-        kind: "filterOptions";
-        source: QuerySource;
-        columnKey: string;
-        limit: number;
-      };
+  intent: {
+    kind: "rows";
+    source: QuerySource;
+    sort: SortEntry[];
+    limit: number;
+  };
 };
 
 export type QueryHandlers = {

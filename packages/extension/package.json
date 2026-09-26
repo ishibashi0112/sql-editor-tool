@@ -117,12 +117,6 @@
           "minimum": 1,
           "description": "1 回に取得する行数の上限。超えたときは上限までを表示し、条件の追加を促します。"
         },
-        "sqlEditorTool.filterOptionsLimit": {
-          "type": "integer",
-          "default": 10000,
-          "minimum": 1,
-          "description": "列見出しのフィルタで、値の候補として取得する件数の上限。"
-        },
         "sqlEditorTool.oracle.clientMode": {
           "type": "string",
           "enum": [

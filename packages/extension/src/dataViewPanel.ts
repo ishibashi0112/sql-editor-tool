@@ -64,7 +64,6 @@ function readSettings(): DataViewSettings {
   const config = vscode.workspace.getConfiguration("sqlEditorTool");
   return {
     maxRows: config.get<number>("maxRows", 100000),
-    filterOptionsLimit: config.get<number>("filterOptionsLimit", 10000),
   };
 }
 

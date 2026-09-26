@@ -24,7 +24,6 @@ const controller = new DataViewController({
   table: { schema: "APP", name: query.get("table") ?? "ORDERS" },
   settings: {
     maxRows: Number(query.get("maxRows") ?? 100000),
-    filterOptionsLimit: Number(query.get("filterOptionsLimit") ?? 10000),
   },
   demo: true,
   // postMessage と同じく、非同期に届ける
