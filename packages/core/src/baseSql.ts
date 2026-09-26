@@ -1,11 +1,12 @@
 // 段階2：利用者が書いたベースSQL を FROM 句の派生テーブルとして包む（docs/handover.md §5 段階2、§6）。
+// レポート（§16）の SQL もここで扱う。レポートでは :名前 をバインド変数に置き換え、そのままでも、包んでも実行する。
 // 包むこと自体が読み取り専用の守りになる（派生テーブルの中には問い合わせしか書けない）。
 // ここでの字句の検査は、DB のエラーより分かりやすいメッセージを出すためのもの。
 // ただし SQL Server で WITH を外に出す部分だけは括弧の外に出るので、CTE の並びを厳密に確かめる
 
 import type { Dialect } from "./dialect";
 import { QueryBuildError } from "./errors";
-import { raw, type Sql, sql } from "./sql";
+import { join, raw, type Sql, sql } from "./sql";
 
 /** 派生テーブルの別名。Oracle は AS を付けられないので、どちらの方言でも付けない */
 const ALIAS = "base_query";
@@ -14,6 +15,9 @@ export type TokenKind =
   | "word"
   | "quoted"
   | "string"
+  /** :名前（レポートのパラメータ。D-28）。どちらの方言でも同じ */
+  | "named"
+  /** それ以外のバインド変数（SQL Server の @x、Oracle の :1）。使えない */
   | "param"
   | "punct"
   | "other";
@@ -29,6 +33,8 @@ export type Token = {
 
 const WORD_START = /[\p{L}_#]/u;
 const WORD_PART = /[\p{L}\p{N}_$#@]/u;
+const NAME_START = /[\p{L}_]/u;
+const NAME_PART = /[\p{L}\p{N}_]/u;
 
 /** 字句に分ける。文字列・引用符つき識別子・コメントの中の記号を構文と取り違えないため */
 export function tokenize(dialect: Dialect, text: string): Token[] {
@@ -43,8 +49,7 @@ export function tokenize(dialect: Dialect, text: string): Token[] {
     let j = from;
     for (;;) {
       const k = text.indexOf(close, j);
-      if (k < 0)
-        throw new QueryBuildError(`ベースSQL の${what}が閉じていません`);
+      if (k < 0) throw new QueryBuildError(`SQL の${what}が閉じていません`);
       if (text.charAt(k + 1) !== close) return k + 1;
       j = k + 2;
     }
@@ -92,13 +97,20 @@ export function tokenize(dialect: Dialect, text: string): Token[] {
       while (j < text.length && WORD_PART.test(text.charAt(j))) j += 1;
       push(isSystem || j === i + 1 ? "other" : "param", i, j);
       i = j;
-    } else if (
-      c === ":" &&
-      dialect.name === "oracle" &&
-      /[\p{L}\p{N}_]/u.test(next)
-    ) {
+    } else if (c === ":" && next === ":") {
+      // PostgreSQL の型変換（col::text）や SQL Server の geometry::Point など。パラメータではない
+      push("other", i, i + 2);
+      i += 2;
+    } else if (c === ":" && NAME_START.test(next)) {
+      // :名前（D-28）。日本語の名前も使える
       let j = i + 1;
-      while (j < text.length && WORD_PART.test(text.charAt(j))) j += 1;
+      while (j < text.length && NAME_PART.test(text.charAt(j))) j += 1;
+      push("named", i, j);
+      i = j;
+    } else if (c === ":" && /\d/.test(next)) {
+      // Oracle の :1 のような番号のバインド変数
+      let j = i + 1;
+      while (j < text.length && /\d/.test(text.charAt(j))) j += 1;
       push("param", i, j);
       i = j;
     } else if (c === "(") {
@@ -108,7 +120,7 @@ export function tokenize(dialect: Dialect, text: string): Token[] {
     } else if (c === ")") {
       depth -= 1;
       if (depth < 0) {
-        throw new QueryBuildError("ベースSQL の括弧の対応が取れていません");
+        throw new QueryBuildError("SQL の括弧の対応が取れていません");
       }
       push("punct", i, i + 1);
       i += 1;
@@ -121,7 +133,7 @@ export function tokenize(dialect: Dialect, text: string): Token[] {
     }
   }
   if (depth !== 0) {
-    throw new QueryBuildError("ベースSQL の括弧の対応が取れていません");
+    throw new QueryBuildError("SQL の括弧の対応が取れていません");
   }
   return tokens;
 }
@@ -147,7 +159,7 @@ function skipBlockComment(
       i += 1;
     }
   }
-  throw new QueryBuildError("ベースSQL のコメントが閉じていません");
+  throw new QueryBuildError("SQL のコメントが閉じていません");
 }
 
 function isQQuote(dialect: Dialect, word: string): boolean {
@@ -165,8 +177,7 @@ function skipQQuote(text: string, quote: number): number {
   };
   const close = `${pairs[open] ?? open}'`;
   const k = text.indexOf(close, quote + 2);
-  if (!open || k < 0)
-    throw new QueryBuildError("ベースSQL の文字列が閉じていません");
+  if (!open || k < 0) throw new QueryBuildError("SQL の文字列が閉じていません");
   return k + close.length;
 }
 
@@ -175,14 +186,37 @@ const isWord = (token: Token | undefined, word: string) =>
 const isPunct = (token: Token | undefined, char: string) =>
   token?.kind === "punct" && token.text === char;
 
-type Prepared = {
-  /** SQL Server で外側の SELECT の前に出す WITH 句。なければ null */
-  withClause: string | null;
-  /** 派生テーブルの中に入れる問い合わせ */
-  body: string;
+/** :名前（: は除いた名前）を、実行する SQL の断片（バインド変数など）に置き換える */
+export type NamedParamResolver = (name: string) => Sql;
+
+type PrepareOptions = {
+  /** エラーのメッセージに出す呼び名 */
+  what: string;
+  /** :名前 の置き換え。ないときは :名前 を使えない（ベースSQL） */
+  resolve?: NamedParamResolver | undefined;
+  /** 派生テーブルで包む。包まないときは、文をそのまま実行する（レポートの実行） */
+  wrap: boolean;
+  /**
+   * 包むとき、SQL Server の最上位の ORDER BY（TOP も OFFSET もないもの）を取り除く。
+   * false ならエラーにする（ベースSQL、D-17）。レポートは、そのまま実行するときは ORDER BY が効き、
+   * 画面の絞り込みで取り直すときは画面の並べ替えを使うので、取り除いてよい
+   */
+  dropOrderBy?: boolean;
 };
 
-function prepare(dialect: Dialect, text: string): Prepared {
+type Prepared = {
+  /** SQL Server で外側の SELECT の前に出す WITH 句。なければ null */
+  withClause: Sql | null;
+  /** 派生テーブルの中に入れる問い合わせ（包まないときは文そのもの） */
+  body: Sql;
+};
+
+function prepare(
+  dialect: Dialect,
+  text: string,
+  options: PrepareOptions,
+): Prepared {
+  const { what } = options;
   let tokens = tokenize(dialect, text);
   let end = text.length;
 
@@ -191,63 +225,123 @@ function prepare(dialect: Dialect, text: string): Prepared {
   if (semicolon >= 0) {
     if (!tokens.slice(semicolon).every((t) => isPunct(t, ";"))) {
       throw new QueryBuildError(
-        "ベースSQL に書ける文は 1 つだけです（セミコロンで区切った複数の文は使えません）",
+        `${what} に書ける文は 1 つだけです（セミコロンで区切った複数の文は使えません）`,
       );
     }
     end = tokens[semicolon]?.start ?? end;
     tokens = tokens.slice(0, semicolon);
   }
   const [first] = tokens;
-  if (first === undefined) throw new QueryBuildError("ベースSQL が空です");
+  if (first === undefined) throw new QueryBuildError(`${what} が空です`);
   if (!isWord(first, "SELECT") && !isWord(first, "WITH")) {
     throw new QueryBuildError(
-      "ベースSQL は SELECT か WITH で始まる問い合わせにしてください（読み取り専用）",
+      `${what} は SELECT か WITH で始まる問い合わせにしてください（読み取り専用）`,
     );
   }
-  const param = tokens.find((t) => t.kind === "param");
+  const param = tokens.find(
+    (t) => t.kind === "param" || (t.kind === "named" && !options.resolve),
+  );
   if (param) {
     throw new QueryBuildError(
-      `ベースSQL にバインド変数（${param.text}）は使えません。値は列見出しのフィルタで指定してください`,
+      options.resolve
+        ? `${what} のバインド変数（${param.text}）は使えません。入力欄にする値は「:名前」の形で書いてください`
+        : `${what} にバインド変数（${param.text}）は使えません。値は列見出しのフィルタで指定してください`,
     );
   }
 
   const top = tokens.filter((t) => t.depth === 0);
-  let bodyStart = first.start;
-  let withClause: string | null = null;
-  if (dialect.name === "mssql" && isWord(first, "WITH")) {
-    // SQL Server は派生テーブルの中に WITH を書けないので、CTE の並びを外側の SELECT の前に出す
-    const main = mainSelectAfterCtes(top);
-    bodyStart = main.start;
-    withClause = text.slice(first.start, main.start).trimEnd();
-  }
-
+  // SQL Server の WITH は、CTE の並びの後が SELECT であることを確かめる（T-SQL は文をセミコロンなしで続けられるため）
+  const main =
+    dialect.name === "mssql" && isWord(first, "WITH")
+      ? mainSelectAfterCtes(top, what)
+      : null;
   for (const [i, t] of top.entries()) {
     if (isWord(t, "INTO")) {
       throw new QueryBuildError(
-        "ベースSQL に SELECT ... INTO は使えません（読み取り専用）",
+        `${what} に SELECT ... INTO は使えません（読み取り専用）`,
       );
     }
     if (isWord(t, "FOR") && isWord(top[i + 1], "UPDATE")) {
       throw new QueryBuildError(
-        "ベースSQL に FOR UPDATE は使えません（行をロックするため）",
+        `${what} に FOR UPDATE は使えません（行をロックするため）`,
       );
     }
   }
 
-  if (dialect.name === "mssql")
-    checkOrderBy(top.filter((t) => t.start >= bodyStart));
+  const emit = (from: number, to: number) =>
+    fragment(text, tokens, from, to, options.resolve);
+  if (!options.wrap) {
+    return {
+      withClause: null,
+      body: emit(first.start, trimmedEnd(text, first.start, end)),
+    };
+  }
 
-  return { withClause, body: text.slice(bodyStart, end).trimEnd() };
+  // SQL Server は派生テーブルの中に WITH を書けないので、CTE の並びを外側の SELECT の前に出す
+  const bodyStart = main?.start ?? first.start;
+  const withClause = main
+    ? emit(first.start, trimmedEnd(text, first.start, main.start))
+    : null;
+  const orderBy =
+    dialect.name === "mssql"
+      ? topLevelOrderBy(
+          top.filter((t) => t.start >= bodyStart),
+          end,
+        )
+      : null;
+  if (orderBy && !options.dropOrderBy) {
+    throw new QueryBuildError(
+      `${what} の ORDER BY は外してください。並べ替えは列見出しで指定します`,
+    );
+  }
+  const bodyEnd = trimmedEnd(text, bodyStart, end);
+  const body = orderBy
+    ? join2(
+        emit(bodyStart, trimmedEnd(text, bodyStart, orderBy.start)),
+        orderBy.end < bodyEnd ? emit(orderBy.end, bodyEnd) : null,
+      )
+    : emit(bodyStart, bodyEnd);
+  return { withClause, body };
+}
+
+/** text の from〜to を SQL の断片にする。:名前 は resolve で置き換える */
+function fragment(
+  text: string,
+  tokens: readonly Token[],
+  from: number,
+  to: number,
+  resolve: NamedParamResolver | undefined,
+): Sql {
+  const parts: Sql[] = [];
+  let pos = from;
+  for (const t of tokens) {
+    if (t.kind !== "named" || t.start < from || t.end > to || !resolve) {
+      continue;
+    }
+    parts.push(raw(text.slice(pos, t.start)), resolve(t.text.slice(1)));
+    pos = t.end;
+  }
+  parts.push(raw(text.slice(pos, to)));
+  return join(parts, "");
+}
+
+function join2(a: Sql, b: Sql | null): Sql {
+  return b ? sql`${a}\n${b}` : a;
+}
+
+/** 末尾の空白を除いた終わりの位置 */
+function trimmedEnd(text: string, from: number, to: number): number {
+  return from + text.slice(from, to).trimEnd().length;
 }
 
 /**
  * 最上位の字句が「名前 [(列, …)] AS (…) [, …] SELECT」の並びであることを確かめ、最後の SELECT を返す。
  * T-SQL は文をセミコロンなしで続けられるので、ここが緩いと外に出した部分に別の文が紛れ込む
  */
-function mainSelectAfterCtes(top: readonly Token[]): Token {
+function mainSelectAfterCtes(top: readonly Token[], what: string): Token {
   const fail = () =>
     new QueryBuildError(
-      "ベースSQL の WITH 句を解釈できません。「WITH 名前 AS (SELECT ...) SELECT ...」の形にしてください",
+      `${what} の WITH 句を解釈できません。「WITH 名前 AS (SELECT ...) SELECT ...」の形にしてください`,
     );
   let i = 1;
   for (;;) {
@@ -271,42 +365,81 @@ function mainSelectAfterCtes(top: readonly Token[]): Token {
     const main = top[i];
     if (!main || !isWord(main, "SELECT")) {
       throw new QueryBuildError(
-        "ベースSQL の WITH 句の後は SELECT にしてください（読み取り専用）",
+        `${what} の WITH 句の後は SELECT にしてください（読み取り専用）`,
       );
     }
     return main;
   }
 }
 
-/** SQL Server の派生テーブルには、TOP か OFFSET がないと ORDER BY を書けない */
-function checkOrderBy(top: readonly Token[]): void {
-  const hasOrderBy = top.some(
+/**
+ * SQL Server の派生テーブルには、TOP か OFFSET がないと ORDER BY を書けない。
+ * そのような最上位の ORDER BY の範囲（ORDER から、OPTION・FOR の前か文の終わりまで）を返す
+ */
+function topLevelOrderBy(
+  top: readonly Token[],
+  end: number,
+): { start: number; end: number } | null {
+  const index = top.findIndex(
     (t, i) => isWord(t, "ORDER") && isWord(top[i + 1], "BY"),
   );
-  if (!hasOrderBy) return;
+  const order = top[index];
+  if (!order) return null;
   const hasOffset = top.some((t) => isWord(t, "OFFSET"));
   const [, second, third] = top;
   const hasTop =
     isWord(second, "TOP") ||
     ((isWord(second, "DISTINCT") || isWord(second, "ALL")) &&
       isWord(third, "TOP"));
-  if (!hasOffset && !hasTop) {
-    throw new QueryBuildError(
-      "ベースSQL の ORDER BY は外してください。並べ替えは列見出しで指定します",
-    );
-  }
+  if (hasOffset || hasTop) return null;
+  const after = top
+    .slice(index + 2)
+    .find((t) => isWord(t, "OPTION") || isWord(t, "FOR"));
+  return { start: order.start, end: after?.start ?? end };
 }
 
 /** FROM 句に書く対象。WITH 句は SELECT の前に置く */
 export type BaseSqlSource = { withClause: Sql | null; from: Sql };
 
-export function fromBaseSql(dialect: Dialect, text: string): BaseSqlSource {
-  const prepared = prepare(dialect, text);
-  // ベースSQL は利用者が自分で書いた問い合わせそのもの。上で 1 つの問い合わせでバインド変数がないことを確かめ、括弧で包む
+export type BaseSqlOptions = {
+  /** レポートの SQL（:名前 を置き換える。ORDER BY は取り除く） */
+  resolve?: NamedParamResolver | undefined;
+};
+
+export function fromBaseSql(
+  dialect: Dialect,
+  text: string,
+  options: BaseSqlOptions = {},
+): BaseSqlSource {
+  const report = options.resolve !== undefined;
+  const prepared = prepare(dialect, text, {
+    what: report ? "SQL" : "ベースSQL",
+    resolve: options.resolve,
+    wrap: true,
+    dropOrderBy: report,
+  });
+  // 利用者が自分で書いた問い合わせそのもの。上で 1 つの問い合わせであることを確かめ、括弧で包む
   return {
-    withClause: prepared.withClause === null ? null : raw(prepared.withClause),
-    from: sql`(\n${raw(prepared.body)}\n) ${raw(ALIAS)}`,
+    withClause: prepared.withClause,
+    from: sql`(\n${prepared.body}\n) ${raw(ALIAS)}`,
   };
+}
+
+/** レポートの SQL を、包まずにそのまま実行する形にする（:名前 は resolve で置き換える） */
+export function reportStatement(
+  dialect: Dialect,
+  text: string,
+  resolve: NamedParamResolver,
+): Sql {
+  return prepare(dialect, text, { what: "SQL", resolve, wrap: false }).body;
+}
+
+/** SQL の中の :名前 の名前（: は除く）。初めに出てきた順、重複なし */
+export function namedParams(dialect: Dialect, text: string): string[] {
+  const names = tokenize(dialect, text)
+    .filter((t) => t.kind === "named")
+    .map((t) => t.text.slice(1));
+  return [...new Set(names)];
 }
 
 /**

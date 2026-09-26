@@ -104,10 +104,11 @@ function toBind(param: BoundParam): oracledb.BindParameter {
         type: type.unicode
           ? oracledb.DB_TYPE_NVARCHAR
           : oracledb.DB_TYPE_VARCHAR,
-        val: String(value),
+        val: value === null ? null : String(value),
       };
     case "integer":
     case "number": {
+      if (value === null) return { type: oracledb.DB_TYPE_NUMBER, val: null };
       const decimal = toPlainDecimal(value);
       if (!decimal) {
         throw new Error(`バインド変数 ${name} の値が数値ではありません`);

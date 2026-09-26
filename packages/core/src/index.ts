@@ -28,6 +28,16 @@ export {
   toFilterOptions,
 } from "./filterOptions";
 export { assertReadOnlyQuery } from "./readOnly";
+export {
+  parseReportConfig,
+  type ReportConfig,
+  type ReportParam,
+  type ReportParamConfig,
+  type ReportParamType,
+  type ReportValues,
+  reportParams,
+  writeReportConfig,
+} from "./report";
 export type {
   ColumnInfo,
   ColumnType,
@@ -37,8 +47,10 @@ export type {
 } from "./schema";
 export {
   type BuiltQuery,
+  buildReportQuery,
   buildSelect,
   buildWhere,
+  type ReportQueryInput,
   type SelectInput,
   type WhereInput,
 } from "./select";

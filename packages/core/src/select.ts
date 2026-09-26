@@ -1,9 +1,10 @@
 // 段階1（単一テーブル／ビュー）の SELECT 文を組み立てる
 
-import { fromBaseSql } from "./baseSql";
+import { fromBaseSql, reportStatement } from "./baseSql";
 import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue, SortEntry } from "./filter";
+import { type ReportConfig, type ReportValues, reportResolver } from "./report";
 import type { ColumnInfo, QuerySource } from "./schema";
 import {
   type BoundParam,
@@ -127,8 +128,17 @@ export function fromSource(
   dialect: Dialect,
   source: QuerySource,
 ): { withClause: Sql[]; from: Sql } {
-  if (source.kind === "baseSql") {
-    const base = fromBaseSql(dialect, source.sql);
+  if (source.kind === "baseSql" || source.kind === "report") {
+    // レポートは :名前 をフォームの値に置き換え、ORDER BY を取り除いて包む（並べ替えは画面の指定を使う）
+    const base = fromBaseSql(
+      dialect,
+      source.sql,
+      source.kind === "report"
+        ? {
+            resolve: reportResolver(dialect, source.config, source.values),
+          }
+        : {},
+    );
     return {
       withClause: base.withClause ? [base.withClause] : [],
       from: base.from,
@@ -150,4 +160,22 @@ export function checkLimit(limit: number, what: string): number {
 
 function limitParam(limit: number): Param {
   return new Param(checkLimit(limit, "取得件数"), { kind: "integer" });
+}
+
+export type ReportQueryInput = {
+  dialect: DialectName;
+  /** レポートの SQL（.sql ファイルの全文。先頭の設定のコメントはそのままでよい） */
+  sql: string;
+  config: ReportConfig;
+  values: ReportValues;
+};
+
+/**
+ * レポートの SQL を、フォームの値をバインド変数にして、包まずにそのまま実行する形にする（ORDER BY も効く）。
+ * 件数の上限は SQL に付けず、取得する側が上限 + 1 行で打ち切る
+ */
+export function buildReportQuery(input: ReportQueryInput): BuiltQuery {
+  const dialect = getDialect(input.dialect);
+  const resolve = reportResolver(dialect, input.config, input.values);
+  return finish(reportStatement(dialect, input.sql, resolve), dialect);
 }

@@ -10,10 +10,10 @@ export type ParamType =
   | { kind: "number" }
   | { kind: "integer" };
 
-/** SQL に埋め込むバインド値。number 型の値は精度を保つため文字列のこともある */
+/** SQL に埋め込むバインド値。number 型の値は精度を保つため文字列のこともある。null はレポートの空欄（D-26） */
 export class Param {
   constructor(
-    readonly value: string | number,
+    readonly value: string | number | null,
     readonly type: ParamType,
   ) {}
 }
@@ -79,7 +79,7 @@ function combine(
 
 export type BoundParam = {
   name: string;
-  value: string | number;
+  value: string | number | null;
   type: ParamType;
 };
 
@@ -111,7 +111,8 @@ export function renderBind(
 export function renderLiteral(fragment: Sql, dialect: Dialect): string {
   let text = "";
   for (const part of fragment.parts) {
-    text += typeof part === "string" ? part : dialect.literal(part);
+    if (typeof part === "string") text += part;
+    else text += part.value === null ? "NULL" : dialect.literal(part);
   }
   return text;
 }

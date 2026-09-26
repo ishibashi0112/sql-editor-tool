@@ -80,11 +80,14 @@ export function toTediousParam(param: BoundParam): TediousParam {
       return {
         name,
         type: type.unicode ? TYPES.NVarChar : TYPES.VarChar,
-        value: String(value),
+        value: value === null ? null : String(value),
       };
     case "integer":
     case "number":
-      return numberParam(name, value);
+      // 空欄（NULL）は型を問わないので int で送る
+      return value === null
+        ? { name, type: TYPES.Int, value: null }
+        : numberParam(name, value);
   }
 }
 

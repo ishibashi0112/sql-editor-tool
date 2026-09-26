@@ -1,5 +1,7 @@
 // スキーマモデル。DB 上の型と「意味上の型」を分けて持つ（D-06）
 
+import type { ReportConfig, ReportValues } from "./report";
+
 /** DB 上の型を、SQL の生成に必要な粒度にまとめたもの。ドライバのアダプタがメタデータから作る */
 export type ColumnType =
   | {
@@ -43,7 +45,16 @@ export type TableRef = {
   name: string;
 };
 
-/** 問い合わせの対象。段階1はテーブル／ビュー、段階2は利用者が書いたベースSQL */
+/**
+ * 問い合わせの対象。段階1はテーブル／ビュー、段階2は利用者が書いたベースSQL か、
+ * フォームの値を入れたレポートの SQL（§16）
+ */
 export type QuerySource =
   | { kind: "table"; table: TableRef }
-  | { kind: "baseSql"; sql: string };
+  | { kind: "baseSql"; sql: string }
+  | {
+      kind: "report";
+      sql: string;
+      config: ReportConfig;
+      values: ReportValues;
+    };
