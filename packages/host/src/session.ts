@@ -4,8 +4,10 @@ import type {
   BoundParam,
   ColumnInfo,
   ColumnType,
+  DbParamGuess,
   DialectName,
   QuerySource,
+  ReportParamProbe,
   SortEntry,
   TableRef,
 } from "@sql-editor-tool/core";
@@ -66,6 +68,13 @@ export interface DbSession {
   describeTable(table: TableRef): Promise<TableDescription>;
   /** signal が中断されたら、DB 側の実行も止めて AbortError を投げる */
   query(request: QueryRequest, handlers: QueryHandlers): Promise<void>;
+  /**
+   * レポートの入力欄の種類の推定（D-35）。バインド変数の名前（probe の placeholder）→ 推定した型。
+   * 推定できなかった変数は含めない。SQL Server だけが実装する（Oracle には推定の仕組みがない。O-13）
+   */
+  guessParamTypes?(
+    probe: ReportParamProbe,
+  ): Promise<Record<string, DbParamGuess>>;
   close(): Promise<void>;
 }
 

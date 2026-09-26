@@ -3,6 +3,8 @@
 import {
   assertReadOnlyQuery,
   type BoundParam,
+  type DbParamGuess,
+  type ReportParamProbe,
   type TableRef,
 } from "@sql-editor-tool/core";
 import {
@@ -18,10 +20,12 @@ import {
 import { Connection, Request } from "tedious";
 import {
   DESCRIBE_COLUMNS_SQL,
+  DESCRIBE_PARAMS_SQL,
   LIST_ALL_OBJECTS_SQL,
   LIST_OBJECTS_SQL,
   LIST_SCHEMAS_SQL,
   PRIMARY_KEY_SQL,
+  paramGuessOf,
   resultColumnType,
   toColumnType,
 } from "./metadata";
@@ -145,6 +149,56 @@ export class MssqlSession implements DbSession {
     );
   }
 
+  /**
+   * 入力欄の種類の推定（D-35）。sp_describe_undeclared_parameters で、バインド変数ごとの型を推定する。
+   * 「:名前 IS NULL」の出現は int と推定されるので、推定しない変数として宣言しておく。
+   * 推定できない出現（COALESCE(:名前, 列) など）があると全体がエラーになるので、
+   * エラーが名前を挙げた変数を宣言に回して、推定し直す。それ以外のエラー（SQL の誤りなど）は、推定をあきらめる
+   */
+  async guessParamTypes(
+    probe: ReportParamProbe,
+  ): Promise<Record<string, DbParamGuess>> {
+    // 推定する SQL も読み取り専用の問い合わせであることを確かめる（解析するだけで実行はしないが、念のため）
+    assertReadOnlyQuery("mssql", probe.sql);
+    const known = new Set(probe.occurrences.map((o) => o.placeholder));
+    const declared = new Set(
+      probe.occurrences.filter((o) => o.nullCheck).map((o) => o.placeholder),
+    );
+    for (;;) {
+      const params: BoundParam[] = [
+        {
+          name: "tsql",
+          value: probe.sql,
+          type: { kind: "string", unicode: true },
+        },
+        {
+          name: "params",
+          value:
+            declared.size > 0
+              ? [...declared].map((p) => `@${p} nvarchar(4000)`).join(", ")
+              : null,
+          type: { kind: "string", unicode: true },
+        },
+      ];
+      let rows: CellValue[][];
+      try {
+        // SELECT / WITH 以外を送る唯一の例外（D-24、D-35）。決まった文だけで、利用者の SQL は @tsql の値として渡す
+        rows = await this.fetchAll(DESCRIBE_PARAMS_SQL, params);
+      } catch (error) {
+        const failed = undeduciblePlaceholder(error, known);
+        if (!failed || declared.has(failed)) return {};
+        declared.add(failed);
+        continue;
+      }
+      return Object.fromEntries(
+        rows.map((row) => [
+          String(row[1]).replace(/^@/, ""),
+          paramGuessOf(String(row[3]), Number(row[4])),
+        ]),
+      );
+    }
+  }
+
   async close(): Promise<void> {
     this.pool.close();
   }
@@ -155,6 +209,13 @@ export class MssqlSession implements DbSession {
     params: BoundParam[],
   ): Promise<CellValue[][]> {
     assertReadOnlyQuery("mssql", sql);
+    return this.fetchAll(sql, params);
+  }
+
+  private async fetchAll(
+    sql: string,
+    params: BoundParam[],
+  ): Promise<CellValue[][]> {
     const rows: CellValue[][] = [];
     const signal = new AbortController().signal;
     await this.pool.use(signal, (connection) =>
@@ -166,6 +227,23 @@ export class MssqlSession implements DbSession {
     );
     return rows;
   }
+}
+
+/**
+ * 推定できない変数を挙げたエラー（11502 など）なら、その変数の名前（p1 など）。
+ * メッセージは言語の設定で変わるので、@p1 の形だけを探す。
+ * SQL の誤りなどでは複数のエラーがまとめて届く（AggregateError）が、そのときは null
+ */
+function undeduciblePlaceholder(
+  error: unknown,
+  known: ReadonlySet<string>,
+): string | null {
+  if (!(error instanceof Error) || error instanceof AggregateError) return null;
+  for (const match of error.message.matchAll(/@(p\d+)\b/g)) {
+    const name = match[1];
+    if (name && known.has(name)) return name;
+  }
+  return null;
 }
 
 /** sysname（nvarchar(128)）と比べる名前 */

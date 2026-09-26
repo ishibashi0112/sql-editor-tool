@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { resultColumnType, type SysColumn, toColumnType } from "./metadata";
+import {
+  paramGuessOf,
+  resultColumnType,
+  type SysColumn,
+  toColumnType,
+} from "./metadata";
 
 const col = (
   typeName: string,
@@ -144,5 +149,35 @@ describe("resultColumnType（結果の列の型）", () => {
       kind: "other",
       dbTypeName: "uniqueidentifier",
     });
+  });
+});
+
+describe("paramGuessOf（sp_describe_undeclared_parameters の型）", () => {
+  test("文字列の長さは文字数。MAX は null", () => {
+    expect(paramGuessOf("nvarchar(8)", 16)).toEqual({
+      kind: "string",
+      length: 8,
+    });
+    expect(paramGuessOf("varchar(6)", 6)).toEqual({
+      kind: "string",
+      length: 6,
+    });
+    expect(paramGuessOf("nvarchar(max)", -1)).toEqual({
+      kind: "string",
+      length: null,
+    });
+    expect(paramGuessOf("char(1)", 1)).toEqual({ kind: "string", length: 1 });
+  });
+
+  test("数値・日付・それ以外", () => {
+    for (const t of ["int", "decimal(38,19)", "bit", "float", "money"]) {
+      expect(paramGuessOf(t, 8), t).toEqual({ kind: "number" });
+    }
+    for (const t of ["date", "datetime", "datetime2(7)", "smalldatetime"]) {
+      expect(paramGuessOf(t, 8), t).toEqual({ kind: "date" });
+    }
+    for (const t of ["uniqueidentifier", "time(7)", "varbinary(max)", "xml"]) {
+      expect(paramGuessOf(t, 16), t).toEqual({ kind: "other" });
+    }
   });
 });
