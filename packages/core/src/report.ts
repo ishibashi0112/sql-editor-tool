@@ -194,12 +194,12 @@ export function reportResolver(
       new QueryBuildError(`「${param.label}」${reason}`, name);
     if (input === "") {
       if (param.required) throw fail("を入力してください");
-      return sql`${new Param(null, nullType(param.type))}`;
+      return sql`${new Param(null, nullType(dialect, param.type))}`;
     }
     switch (param.type) {
       case "text":
       case "select":
-        return sql`${new Param(input, { kind: "string", unicode: true })}`;
+        return sql`${new Param(input, dialect.reportText)}`;
       case "number": {
         const value = input.replaceAll(",", "");
         if (!NUMERIC.test(value))
@@ -227,10 +227,11 @@ function inputToYmd(input: string): string | null {
   return key ? toYmd(key) : null;
 }
 
-function nullType(type: ReportParamType): ParamType {
-  return type === "number"
-    ? { kind: "number" }
-    : { kind: "string", unicode: type === "text" || type === "select" };
+function nullType(dialect: Dialect, type: ReportParamType): ParamType {
+  if (type === "number") return { kind: "number" };
+  return type === "text" || type === "select"
+    ? dialect.reportText
+    : { kind: "string", unicode: false };
 }
 
 /**

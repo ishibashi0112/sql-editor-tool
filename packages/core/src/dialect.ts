@@ -1,6 +1,6 @@
 // SQL Server と Oracle の方言の差。WHERE 生成の仕様は docs/handover.md §6
 
-import { type Param, raw, type Sql, sql } from "./sql";
+import { type Param, type ParamType, raw, type Sql, sql } from "./sql";
 
 export type DialectName = "mssql" | "oracle";
 
@@ -26,6 +26,10 @@ export type Dialect = {
   readonly maxInListSize: number;
   /** 1 文あたりのバインド変数の上限 */
   readonly maxParams: number;
+  /**
+   * レポートの文字列の入力欄（と選択肢）のバインドの型。比べる列の型が分からないので、方言ごとに決める（D-38）
+   */
+  readonly reportText: ParamType;
 };
 
 function quoteString(value: string): string {
@@ -54,6 +58,8 @@ export const mssql: Dialect = {
   maxInListSize: Number.POSITIVE_INFINITY,
   // 上限は 2100。件数の制限などの分を残しておく
   maxParams: 2000,
+  // 社内の SQL Server の文字列の列はほぼ nvarchar（§13.1）
+  reportText: { kind: "string", unicode: true },
 };
 
 export const oracle: Dialect = {
@@ -76,6 +82,9 @@ export const oracle: Dialect = {
   numberAsText: (value) => sql`TO_CHAR(${value})`,
   maxInListSize: 1000,
   maxParams: 65535,
+  // NVARCHAR だと VARCHAR2 の列の索引が効かず、VARCHAR / NVARCHAR では CHAR 列と一致しない。
+  // CHAR なら A5:SQL Mk-2 で値を直に書いたときと同じ比べ方になり、索引も効く（Docker の Oracle で確かめた）
+  reportText: { kind: "string", unicode: false, fixedChar: true },
 };
 
 export function getDialect(name: DialectName): Dialect {

@@ -109,6 +109,12 @@ WHERE 受注日 >= @p1
     });
     expect(q.sql).toContain("(:p2 IS NULL OR 得意先コード = :p3)");
     expect(q.params[1]?.value).toBeNull();
+    // Oracle の文字列は CHAR でバインドする（CHAR 列と一致し、VARCHAR2 列の索引も効く。D-38）
+    expect(q.params[1]?.type).toEqual({
+      kind: "string",
+      unicode: false,
+      fixedChar: true,
+    });
     expect(q.literalSql).toContain("(NULL IS NULL OR");
   });
 
