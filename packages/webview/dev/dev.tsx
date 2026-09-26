@@ -1,5 +1,6 @@
 // 開発用ページ：VS Code の外（ブラウザ）で画面を確かめる。ホスト側の制御とデモ接続を、同じページの中で動かす。
 // URL のクエリで切り替える：?table=ORDERS&dialect=oracle&maxRows=5000
+// 列の設定（D-36）はブラウザの localStorage に保存する（?reset で消す）
 
 import "@ishibashi0112/spreadsheet-grid/style.css";
 import "../src/styles.css";
@@ -18,10 +19,14 @@ const query = new URLSearchParams(location.search);
 const dialect: DialectName =
   query.get("dialect") === "oracle" ? "oracle" : "mssql";
 
+const tableName = query.get("table") ?? "ORDERS";
+const settingsKey = `tableSettings:${dialect}:${tableName}`;
+if (query.has("reset")) localStorage.removeItem(settingsKey);
+
 const handlers = new Set<(message: ToWebview) => void>();
 const controller = new DataViewController({
   session: new DemoSession({ dialect }),
-  table: { schema: "APP", name: query.get("table") ?? "ORDERS" },
+  table: { schema: "APP", name: tableName },
   settings: {
     maxRows: Number(query.get("maxRows") ?? 100000),
   },
@@ -35,6 +40,15 @@ const controller = new DataViewController({
   copyText: async (text) => {
     await navigator.clipboard.writeText(text).catch(() => {});
     console.info(text);
+  },
+  tableSettings: {
+    load: () => {
+      const saved = localStorage.getItem(settingsKey);
+      return saved === null ? undefined : JSON.parse(saved);
+    },
+    save: async (settings) => {
+      localStorage.setItem(settingsKey, JSON.stringify(settings));
+    },
   },
 });
 

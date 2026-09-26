@@ -4,6 +4,7 @@
 import type { SortEntry } from "@sql-editor-tool/core";
 import type { SqlPreview, ToWebview, ViewInit } from "@sql-editor-tool/host";
 import { useCallback, useEffect, useState } from "react";
+import { ColumnSettings } from "./ColumnSettings";
 import type { HostApi } from "./hostApi";
 import {
   isQueryMessage,
@@ -17,6 +18,11 @@ export function App({ api }: { api: HostApi }) {
   const [view, setView] = useState<ViewInit | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [preview, setPreview] = useState<SqlPreview | null>(null);
+  /** init のたびに増やし、結果のグリッドを作り直す（列の設定で列の種類が変わると、絞り込みと形が合わなくなるため） */
+  const [version, setVersion] = useState(0);
+  const [editing, setEditing] = useState(false);
+  /** 日付らしい列の案内を閉じた */
+  const [suggestionClosed, setSuggestionClosed] = useState(false);
   const result = useQueryResult();
   const handleQuery = result.handle;
 
@@ -29,6 +35,8 @@ export function App({ api }: { api: HostApi }) {
       switch (message.type) {
         case "init":
           setView(message.view);
+          setVersion((v) => v + 1);
+          setEditing(false);
           return;
         case "initFailed":
           setInitError(message.message);
@@ -93,8 +101,26 @@ export function App({ api }: { api: HostApi }) {
           enabled={preview?.ok === true}
           onCopy={(variant) => api.post({ type: "copySql", variant })}
         />
+        <button
+          type="button"
+          className={editing ? "" : "secondary"}
+          title="列の意味（yyyymmdd の文字列を日付として扱う）とキーを設定する"
+          onClick={() => setEditing((e) => !e)}
+        >
+          ⚙ 列
+        </button>
       </header>
+      {editing && (
+        <ColumnSettings
+          view={view}
+          onSave={(semantic, keyColumns) =>
+            api.post({ type: "saveColumnSettings", semantic, keyColumns })
+          }
+          onCancel={() => setEditing(false)}
+        />
+      )}
       <ResultPane
+        key={version}
         columns={view.columns}
         rows={result.rows}
         query={result.query}
@@ -106,12 +132,46 @@ export function App({ api }: { api: HostApi }) {
         onRefetch={executeFiltered}
         idleText="実行すると、ここに結果が出ます"
         notice={
-          view.demo && (
-            <div className="notice">
-              デモ接続です。画面の絞り込みは効きますが、「DB
-              から取り直す」ときは条件で絞り込みません（並べ替えと件数の上限だけ効きます）。
-            </div>
-          )
+          <>
+            {view.demo && (
+              <div className="notice">
+                デモ接続です。画面の絞り込みは効きますが、「DB
+                から取り直す」ときは条件で絞り込みません（並べ替えと件数の上限だけ効きます）。
+              </div>
+            )}
+            {view.suggestion.length > 0 && !suggestionClosed && !editing && (
+              <div className="notice suggestion-notice">
+                <span>
+                  yyyymmdd の日付らしい列があります：
+                  {view.suggestion.join("、")}
+                  。日付として扱うと、列見出しで期間などの日付の絞り込みが使えます。
+                </span>
+                <button
+                  type="button"
+                  onClick={() => api.post({ type: "acceptSuggestion" })}
+                >
+                  日付として扱う
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setEditing(true)}
+                >
+                  ⚙ 列で選ぶ
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setSuggestionClosed(true);
+                    api.post({ type: "dismissSuggestion" });
+                  }}
+                >
+                  使わない
+                </button>
+              </div>
+            )}
+          </>
         }
       />
     </div>
