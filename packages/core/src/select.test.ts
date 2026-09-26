@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ColumnFilterValue, SortEntry } from "./filter";
+import type { ColumnInfo } from "./schema";
 import { buildSelect } from "./select";
 import { columns } from "./testColumns";
 
@@ -107,6 +108,36 @@ describe("buildSelect", () => {
         buildSelect({ dialect: "mssql", source, columns, limit }),
       ).toThrow("1 以上の整数");
     }
+  });
+
+  test("16 桁以上の decimal（asText）があれば列を並べ、その列だけ文字列にして取る", () => {
+    const wide: ColumnInfo[] = [
+      {
+        name: "ID",
+        type: { kind: "number", precision: 19, scale: 0, asText: true },
+      },
+      {
+        name: "NAME",
+        type: { kind: "string", unicode: true, fixedLength: false, length: 20 },
+      },
+    ];
+    const q = buildSelect({
+      dialect: "mssql",
+      source,
+      columns: wide,
+      sort: [{ columnKey: "ID", direction: "asc" }],
+      limit: 10,
+    });
+    expect(q.sql).toBe(
+      [
+        "SELECT TOP (@p1)",
+        "  CONVERT(varchar(40), [ID]) AS [ID],",
+        "  [NAME]",
+        "FROM [APP].[ORDERS]",
+        // 並べ替えは元の数値の列（文字列にした別名ではない）
+        "ORDER BY [ID] ASC",
+      ].join("\n"),
+    );
   });
 
   test("未知の列で並べ替えはエラー", () => {

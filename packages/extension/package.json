@@ -10,7 +10,7 @@
     "url": "https://github.com/ishibashi0112/sql-editor-tool.git"
   },
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.101.0"
   },
   "categories": [
     "Other"
@@ -122,6 +122,41 @@
           "default": 10000,
           "minimum": 1,
           "description": "列見出しのフィルタで、値の候補として取得する件数の上限。"
+        },
+        "sqlEditorTool.oracle.clientMode": {
+          "type": "string",
+          "enum": [
+            "thin",
+            "thick"
+          ],
+          "enumDescriptions": [
+            "Oracle Client を使わずに接続する（既定）",
+            "PC にインストールされている Oracle Client を使って接続する。Thin で接続できないときに使う"
+          ],
+          "default": "thin",
+          "markdownDescription": "Oracle への接続の方式。変更したら、ウィンドウを再読み込みしてください（1 つのウィンドウの中では切り替えられません）。"
+        },
+        "sqlEditorTool.oracle.clientLibDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "`thick` のときに使う Oracle Client のフォルダ（`oci.dll` のあるフォルダ）。空のときは PATH から探します。"
+        },
+        "sqlEditorTool.mssql.tlsMinVersion": {
+          "type": "string",
+          "enum": [
+            "",
+            "TLSv1",
+            "TLSv1.1",
+            "TLSv1.2"
+          ],
+          "enumDescriptions": [
+            "既定（TLS 1.2 以上）",
+            "TLS 1.0 以上を許す",
+            "TLS 1.1 以上を許す",
+            "TLS 1.2 以上"
+          ],
+          "default": "",
+          "markdownDescription": "SQL Server へのログインで使う TLS の最低のバージョン。古い SQL Server で TLS のエラーになって接続できないときだけ変更します。"
         }
       }
     }
@@ -134,12 +169,14 @@
   },
   "dependencies": {
     "@sql-editor-tool/core": "workspace:*",
+    "@sql-editor-tool/driver-mssql": "workspace:*",
+    "@sql-editor-tool/driver-oracle": "workspace:*",
     "@sql-editor-tool/host": "workspace:*",
     "@sql-editor-tool/webview": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.x",
-    "@types/vscode": "1.75.0",
+    "@types/vscode": "1.101.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2"
   }

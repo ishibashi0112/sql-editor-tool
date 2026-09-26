@@ -1,0 +1,22 @@
+{
+  "name": "@sql-editor-tool/driver-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Oracle のドライバ（node-oracledb。Thin モード、必要なら Thick モード）。host の DbSession を実装する",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@sql-editor-tool/core": "workspace:*",
+    "@sql-editor-tool/host": "workspace:*",
+    "oracledb": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.x",
+    "@types/oracledb": "^7.0.3"
+  }
+}

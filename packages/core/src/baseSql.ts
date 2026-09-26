@@ -10,9 +10,15 @@ import { raw, type Sql, sql } from "./sql";
 /** 派生テーブルの別名。Oracle は AS を付けられないので、どちらの方言でも付けない */
 const ALIAS = "base_query";
 
-type TokenKind = "word" | "quoted" | "string" | "param" | "punct" | "other";
+export type TokenKind =
+  | "word"
+  | "quoted"
+  | "string"
+  | "param"
+  | "punct"
+  | "other";
 
-type Token = {
+export type Token = {
   kind: TokenKind;
   text: string;
   start: number;
@@ -25,7 +31,7 @@ const WORD_START = /[\p{L}_#]/u;
 const WORD_PART = /[\p{L}\p{N}_$#@]/u;
 
 /** 字句に分ける。文字列・引用符つき識別子・コメントの中の記号を構文と取り違えないため */
-function tokenize(dialect: Dialect, text: string): Token[] {
+export function tokenize(dialect: Dialect, text: string): Token[] {
   const tokens: Token[] = [];
   let depth = 0;
   let i = 0;

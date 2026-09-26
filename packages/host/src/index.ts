@@ -21,3 +21,12 @@ export {
   type QueryRequest,
   type TableDescription,
 } from "./session";
+export {
+  type DateTimeParts,
+  EXACT_DIGITS,
+  formatBinary,
+  formatDateTime,
+  formatTime,
+  type PlainDecimal,
+  toPlainDecimal,
+} from "./values";

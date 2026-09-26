@@ -27,6 +27,7 @@ export {
   type FilterOptionsResult,
   toFilterOptions,
 } from "./filterOptions";
+export { assertReadOnlyQuery } from "./readOnly";
 export type {
   ColumnInfo,
   ColumnType,

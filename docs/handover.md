@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-25（会社 PC での `verify/` の SQL の結果を §13 に記録。O-01〜O-03、O-09 を更新し、O-10 を追加。D-21 でドライバの作成に進むことにした）
+最終更新：2026-09-26（ドライバ（driver-mssql / driver-oracle）を作り、拡張から使えるようにした。D-07 を更新し、D-22〜D-24、O-11 を追加。会社 PC での確認手順を §14 に置いた）
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -27,6 +27,7 @@
 | 日付の持ち方（SQL Server） | `yyyymmdd` 形式の文字列（Hayami の知見）が主。ほかに `date` / `datetime` 型、長さ 10・14・17 の文字列、numeric もある | 確定（§13）。`yyyymmdd` 以外の書式は O-10 |
 | 日付の持ち方（Oracle） | DATE 型（96 列）と VARCHAR2(10) / (20) の文字列が混在。長さ 8 の文字列はない | 一部確定（§13）。時刻の使用は O-01、文字列の書式は O-10 |
 | vsix | 会社 PC の VS Code に自作拡張をインストールできることを確認済み | 確定 |
+| VS Code（会社 PC） | 1.101 以降（内蔵の Node は 22） | 確定（ユーザーの回答、D-22） |
 | ネットワーク | DB は社内ネットワークからのみ到達可能。Mac からは接続できない | 確定 |
 
 開発は Mac（Claude Code）で行い、DB に繋ぐ検証は会社 PC で行う。検証結果は、ホスト名・IP・DB 名・業務データをマスクしてから持ち帰る。
@@ -41,7 +42,7 @@
 | D-04 | 段階的に進める：段階1＝単一テーブル／ビュー、段階2＝ベースSQL＋GUIフィルタ、段階3＝関連テーブル条件（EXISTS） | 提案（概ね合意） |
 | D-05 | 読み取り専用。生成・実行するのは SELECT（と WITH）のみ | 提案（概ね合意） |
 | D-06 | DB 上の型と「意味上の型」を分けて持つ（例：VARCHAR(8) だが意味は日付） | 提案 |
-| D-07 | ドライバは SQL Server が `mssql`（tedious）、Oracle が `node-oracledb` の Thin モード | 提案 |
+| D-07 | ドライバは SQL Server が tedious（`mssql` を通さず直接使う。Hayami と同じ）、Oracle が `node-oracledb` の Thin モード（設定で Thick モードに切り替えられる。D-21） | 提案（実装済み、2026-09-26）。tedious を直接使うのは、`mssql` を通しても decimal の精度の問題（D-23）は変わらず、Hayami の実装を参考にできるため。接続のプールは自前（`driver-mssql/src/pool.ts`） |
 | D-08 | モノレポ構成で、core（方言・WHERE 生成・スキーマモデル）をホスト非依存にする | 提案（概ね合意） |
 | D-09 | Hayami の D-14 セキュリティ原則を引き継ぐ（§8） | 提案 |
 | D-10 | コーディング規約は Hayami 寄り：pnpm モノレポ、Biome（2 スペース、ダブルクォート、recommended）、TS strict＋`noUncheckedIndexedAccess`＋`exactOptionalPropertyTypes`＋`verbatimModuleSyntax`、`.gitattributes` で LF 固定、日本語コメント。テストは vitest（拡張は Bun ではなく VS Code 内蔵の Node で動くため） | 確定（O-06） |
@@ -55,14 +56,17 @@
 | D-18 | DB への実行は「実行」ボタンを押したときだけ。キー操作（§5 の Enter キー、Ctrl+Enter）では実行しない。Enter はグリッドのセル移動やフィルタの確定と重なるため | 確定 |
 | D-19 | 行は「行ごとの配列」（`CellValue[][]`）のチャンクで Webview に送る。§5 の「列ごとの配列」から変える。グリッドの `getValue: row => row[i]` でそのまま読め、行オブジェクトへの変換が要らないため。Webview は受け取った行を 200ms ごとにまとめて画面に反映する | 確定（当面） |
 | D-20 | VS Code に依存しないアプリ層を `packages/host` に置く（Webview とのメッセージ、ドライバのインターフェイス `DbSession`、データビューの制御 `DataViewController`、デモ接続）。拡張はこれを VS Code につなぐだけにする。ブラウザの開発用ページでも同じ制御を動かせる（§12） | 確定 |
-| D-21 | 接続確認を待たずにドライバを作る。SQL Server は Node.js（tedious、`encrypt: false`）からの接続実績があるので確認済みとみなす。Oracle は Thin モードで接続できる想定で作り、会社 PC で初めて繋いだときに確かめる。繋がらなかった場合は Thick モード（会社 PC にある Oracle Client を使う）に切り替えられるよう、接続設定に切り替えを用意しておく | 確定（ユーザーが判断） |
+| D-21 | 接続確認を待たずにドライバを作る。SQL Server は Node.js（tedious、`encrypt: false`）からの接続実績があるので確認済みとみなす。Oracle は Thin モードで接続できる想定で作り、会社 PC で初めて繋いだときに確かめる。繋がらなかった場合は Thick モード（会社 PC にある Oracle Client を使う）に切り替えられるよう、接続設定に切り替えを用意しておく | 確定（ユーザーが判断）。切り替えは設定 `sqlEditorTool.oracle.clientMode`（§12）。Thin / Thick は 1 つのプロセスで 1 回しか決められないので、接続ごとではなく拡張全体の設定にした |
+| D-22 | 対象は VS Code 1.101 以降（`engines.vscode` は `^1.101.0`、esbuild の対象は Node 22）。tedious 20 が Node 22 以上を求めるため | 確定（会社 PC は 1.101 以降、ユーザーの回答） |
+| D-23 | 15 桁を超える数値を正確に扱う（§13 の結果による）。取得：SQL Server は 16 桁以上の decimal / numeric を SELECT で `CONVERT(varchar(40), 列) AS 列` にして文字列で取る（`ColumnType` の `asText`。tedious は decimal を JavaScript の数値で読むため）。Oracle は精度の指定がない NUMBER と 16 桁以上の NUMBER を `fetchTypeHandler` で文字列にする。バインド：桁数で型を選ぶ（SQL Server は int / bigint / decimal(p, s)、15 桁を超える小数は varchar。Oracle は NUMBER、15 桁を超えれば文字列）。§6 | 提案（実装済み） |
+| D-24 | 読み取り専用の最後の確認として、ドライバは DB に送る直前に `assertReadOnlyQuery`（core）を呼ぶ。SELECT / WITH で始まる 1 つの文で、書き込みなどの語（INSERT、UPDATE、DELETE、MERGE、INTO、CREATE、ALTER、DROP、TRUNCATE、GRANT、REVOKE、EXEC）がないことを確かめる。Oracle の `SET TRANSACTION READ ONLY` は使わない（SELECT / WITH 以外を送らない原則のため） | 提案（実装済み） |
 
 ## 4. 未確定事項
 
 | No | 内容 | 確認方法 | 状態 |
 |---|---|---|---|
 | O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 一部確認（§13）：両方ある（DATE 96 列、日付らしい VARCHAR2(10) / (20) が約 220 列）。DATE の時刻の使用は未確認（`manual/date_time_usage.sql` を代表的な列で実行する） |
-| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。接続できる想定で進める（D-21）。ドライバを会社 PC で初めて使うときに確かめる |
+| O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。接続できる想定で進める（D-21）。ドライバを会社 PC で初めて使うときに確かめる（§14）。繋がらなければ設定で Thick モードに切り替える |
 | O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 解決：バージョンは 2012 SP2（§13）。Node.js からの接続は実績があるので確認済みとみなす（D-21） |
 | O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：v0.40.0 には**ない**（§11）→ v0.41.0 で `manualFiltering` として追加された（§11.5、D-14） |
 | O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
@@ -70,8 +74,8 @@
 | O-07 | 取得上限の既定値。提案は 10 万行（設定で変更可） | ユーザーが決定 | 解決（D-11） |
 | O-08 | spreadsheet-grid に足りない機能（§11.3）を、ライブラリ側に追加するか、アプリ側の回避策で済ませるか | ユーザーが決定 | 解決（D-12） |
 | O-09 | 文字列比較の細部。(1) 大文字小文字：グリッドのクライアント側判定は区別しない。SQL Server は照合順序次第（多くは区別しない）、Oracle は既定で区別する。Oracle で区別しないようにすると `UPPER(col)` でインデックスが効かなくなる。(2) 空白だけの値：グリッドは空欄として扱う。SQL Server の `col = ''` は末尾空白を無視するので一致するが、Oracle の `col IS NULL` は一致しない（CHAR 列に空白を入れて「空」としている運用がないか）。(3) Oracle の CHAR 列の `RPAD(:p, 列長)`：RPAD の長さは表示幅なので、全角文字を含む値や BYTE 単位の列長で合わない可能性がある。node-oracledb で `DB_TYPE_CHAR` としてバインドする案もある | 会社 PC で確認（O-03 の照合順序、`verify/` の型の分布、CHAR 列での実際の比較）。(1) はその結果を見てユーザーが決定 | 一部確認（§13）：SQL Server は `Japanese_CI_AS`（大文字小文字・全角半角・ひらがなカタカナを区別しない）。Oracle の CHAR 列は 12 列だけ、NLS_LENGTH_SEMANTICS は BYTE なので、(3) の影響は小さい。(1) の方針は未決定 |
-
 | O-10 | 文字列（と数値）で持つ日付の書式。`yyyymmdd` 以外に、SQL Server の nvarchar(10) / (14) / (17) と numeric の日付らしい列、Oracle の VARCHAR2(10) / (20) がある。区切り付き（`yyyy/mm/dd`）や時刻付き（`yyyymmddhhmmss`）なら、意味型（D-06）に書式を持たせる必要がある | 代表的な列で `verify/sql/*/manual/string_date_format.sql` を実行し、書式（数字を 9 に置き換えた形）を持ち帰る | 未確定 |
+| O-11 | SQL Server 2012 SP2（11.0.5058）へのログインの TLS。tedious は `encrypt: false` でもログインの間は TLS を使う。この版は TLS 1.2 に対応する更新より前の可能性があり、VS Code 1.101 の Node 22 の既定（TLS 1.2 以上）では失敗するかもしれない | 会社 PC で拡張から接続する（§14）。TLS のエラーなら設定 `sqlEditorTool.mssql.tlsMinVersion` を `TLSv1` にして再試行する | 念のための備え。D-21 では接続は確認済みとみなしている。拡張から繋がれば解決 |
 
 ## 5. 段階計画
 
@@ -104,7 +108,7 @@
   - 次の場合はエラーにする（D-17）：空、複数の文（末尾のセミコロンは取り除く）、SELECT / WITH 以外で始まる文、バインド変数（SQL Server の `@x`、Oracle の `:x`）、最上位の `INTO` と `FOR UPDATE`、SQL Server で TOP も OFFSET もない最上位の ORDER BY。
   - 判定には簡易な字句解析を使う。文字列、`N'...'`、Oracle の `q'[...]'`、引用符つきの名前（`"..."`、SQL Server の `[...]`）、コメント（SQL Server は入れ子に対応）の中の記号は、構文として扱わない。
   - 列名の重複と名前のない列は `checkBaseColumns` で検出する。メタデータを取得した後に呼ぶ。SQL Server では大文字小文字を区別せず、Oracle では区別して比べる。
-  - 読み取り専用を守る仕組みは、派生テーブルで包むこと（中には問い合わせしか書けない）。字句の検査は、DB のエラーより分かりやすいメッセージを出すためのもの。さらに守るなら、ドライバの段階で Oracle は `SET TRANSACTION READ ONLY` を使い、両方の DB で参照権限だけのアカウントを使う（ドライバの実装時に検討する）。
+  - 読み取り専用を守る仕組みは、派生テーブルで包むこと（中には問い合わせしか書けない）。字句の検査は、DB のエラーより分かりやすいメッセージを出すためのもの。ドライバは実行の直前に `assertReadOnlyQuery` で確かめる（D-24）。さらに守るなら、両方の DB で参照権限だけのアカウントを使う。
 
 ### 段階3：関連テーブルの条件で絞る（必要になったら）
 
@@ -137,8 +141,10 @@
 
 - **値は必ずバインド変数**：文字列連結はしない。
 - **Oracle の CHAR 列**：文字列をバインドして CHAR 列と比較すると、末尾空白の扱いの違いで一致しないことがある。インデックスを効かせるため、列側ではなくバインド側を `RPAD(:p, 列長)` で埋める。SQL Server の `=` は末尾空白を無視するので不要。
-- **SQL Server のバインド型**：`mssql` は文字列パラメータを既定で NVARCHAR として送る。VARCHAR 列と比較すると暗黙の型変換でインデックスが効かなくなることがあるので、スキーマ情報から列の実際の型（VARCHAR と長さ）でバインドする。
-- **数値の精度**：Oracle の NUMBER や SQL Server の decimal で 15 桁を超えうる列は、JavaScript の数値に変換すると下の桁が狂う。文字列として取得する（方法はドライバごとに実装時に検証）。
+- **SQL Server のバインド型**：文字列パラメータを NVARCHAR で送り VARCHAR 列と比較すると、暗黙の型変換でインデックスが効かなくなることがある。列が varchar / char なら VARCHAR、nvarchar / nchar なら NVARCHAR でバインドする（`ParamType` の `unicode`。長さは tedious が値から決める）。
+- **数値の精度**：Oracle の NUMBER や SQL Server の decimal で 15 桁を超えうる列は、JavaScript の数値に変換すると下の桁が狂う。文字列として取得する（D-23）。
+  - SQL Server は tedious が decimal を数値で読むので、SQL の側で文字列にする（`SELECT` に列を並べ、その列だけ `CONVERT(varchar(40), 列) AS 列`）。該当の列がなければ `SELECT *` のまま。候補値の SQL は、文字列にした値と元の値の 2 列を取り、元の値で並べる（文字列の順だと 10 が 9 より前に来るため）。
+  - バインドも tedious は decimal を数値で送るので、15 桁を超える小数は varchar で送り、SQL Server に列の型へ変換させる（列の位取りより細かい値は丸められる）。整数は bigint の範囲なら文字列のまま bigint で送れる。
 - **セットフィルタの候補値**：DB から `DISTINCT` に件数上限をかけて取得する（D-16）。
   - ほかの列の条件で絞る。候補を取る列自身の条件は使わない（グリッドが取得した候補に当てる）。
   - 上限 + 1 件を取り、はみ出したら打ち切り（`truncated`）とする。
@@ -147,7 +153,7 @@
   - 結果は `toFilterOptions` で候補にする。NULL と空文字は `''`（ラベル `（空白）`）、日付は `'YYYY-MM-DD'`。その値をそのまま WHERE の生成に渡せる。
   - 列に索引がない大きいテーブルでは、`DISTINCT` が全件走査になる。所要時間は会社 PC で確かめる。
 - **識別子**：列名・テーブル名は常に引用符で囲む（SQL Server は `[...]`、Oracle は `"..."`）。予約語や日本語の列名でも壊れないようにするため。
-- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`filterOptions.ts`（集合フィルタの候補値）、`baseSql.ts`（段階2のベースSQL）、`dialect.ts`（方言の差）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
+- **実装**：`packages/core/src/where.ts`（条件）、`select.ts`（SELECT 文）、`filterOptions.ts`（集合フィルタの候補値）、`baseSql.ts`（段階2のベースSQL）、`dialect.ts`（方言の差）、`readOnly.ts`（実行前の読み取り専用の確認、D-24）。SQL は `sql` タグ付きテンプレートで組み立て、値は `Param` としてしか埋め込めないようにしている。バインド版と A5 に貼るリテラル版は、同じ断片から出力する。
 
 ## 7. アーキテクチャ（提案）
 
@@ -157,14 +163,22 @@ pnpm のモノレポ。
 packages/
   core/            方言、フィルタ記述子 → WHERE 句、スキーマモデル。依存なしの純 TypeScript。一番厚くテストする
   host/            VS Code に依存しないアプリ層（D-20）：Webview とのメッセージ、DbSession、DataViewController、デモ接続
-  driver-mssql/    mssql（tedious）のアダプタ（未作成。DbSession を実装する）
-  driver-oracle/   node-oracledb（Thin）のアダプタ（未作成。DbSession を実装する）
+  driver-mssql/    tedious のドライバ（DbSession の実装、接続のプール、型の対応、値の変換）
+  driver-oracle/   node-oracledb のドライバ（DbSession の実装、Thin / Thick の切り替え、型の対応、値の変換）
   extension/       VS Code 拡張本体：接続の管理、ツリー、Webview パネル。host を VS Code につなぐ
   webview/         React＋spreadsheet-grid の画面。dev/ はブラウザで確かめる開発用ページ
 ```
 
 - ドライバが守ること（`packages/host/src/session.ts`）：結果の列名を `onColumns` で先に渡す。行は数百〜数千行ずつ `onRows` で渡す。日付・時刻は `'YYYY-MM-DD HH:mm:ss'` などの文字列、15 桁を超えうる数値は文字列にする。`signal` が中断されたら DB 側の実行も止めて、`AbortError` を投げる。
 - `QueryRequest.intent` はデモ接続が SQL を解釈せずに結果を作るための情報で、実際のドライバは使わない。
+- ドライバの実装（2026-09-26）：
+  - 接続を開くときに 1 本つないで確かめる（パスワードの誤りなどをツリーを開いた時点で出す）。接続は最大 4 本を使い回し、使われないまま 5 分過ぎたら閉じる。行の取得中でも、候補値の取得やツリーの展開を待たせないため。
+  - 行の渡し方：SQL Server は 1000 行ごと、または前に渡してから 100ms で渡す（最初の行はすぐ出る）。Oracle は `getRows` で最初 100 行、あとは 1000 行ずつ。
+  - 中止：SQL Server は `connection.cancel()`、Oracle は `connection.break()`（止めた接続はプールに戻さずに閉じる）。
+  - 時間での打ち切りはしない（tedious の `requestTimeout: 0`）。止めるのは「中止」ボタンだけ。
+  - 日付・時刻は `'YYYY-MM-DD HH:mm:ss'`（秒の小数部は 0 でなければ付ける）、date 型は `'YYYY-MM-DD'`。SQL Server は tedious が DB の値を UTC として Date にするので UTC で読む。Oracle は node-oracledb がローカル時刻として Date にするのでローカル時刻で読む（夏時間のある地域では、夏時間の切り替わりの時刻がずれうる。日本は該当しない）。Oracle の TIMESTAMP のミリ秒より下の桁は落ちる。
+  - bit は 0 / 1、バイナリは `0x…` の 16 進（64 バイトまで）。Oracle の BLOB は中身を取らず「（BLOB n バイト）」と出す。
+  - node-oracledb の JavaScript は extension.js にまとめ、Thick モード用のバイナリ（`.node`）は `dist/oracledb/` に置いて `initOracleClient` の `binaryDir` で指す。vsix には win32-x64 のものだけを入れる。
 
 - core はホストに依存させない。将来デスクトップ版（Hayami 系の Electrobun や webview2-bridge）に載せ替えられるようにするため。
 - core のフィルタ記述子は、spreadsheet-grid のフィルタ記述子（判別共用体）と対応させる。
@@ -203,7 +217,8 @@ packages/
 6. ドライバのアダプタ、拡張本体、Webview の順に進める。Webview は spreadsheet-grid 0.41.0 以上を使う（D-14）。
    - ~~拡張本体と Webview の土台~~ 済み（デモ接続で、接続の追加 → ツリー → テーブルを開く → フィルタ → SQL プレビュー → 実行 → 取得・中止・上限、まで動く。§12）
    - 残り（段階1）：列の意味型の上書き（日付など）とその候補の提案、キーの上書き、段階2の画面（ベースSQL を開く、`checkBaseColumns`）
-   - ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）。今は接続を追加できるが、開くと「ドライバはまだ実装していません」と出る
+   - ~~ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）~~ 済み（2026-09-26）。Mac では実 DB に繋げないので、偽の接続での単体テストと、存在しない接続先へのエラーの確認まで
+7. 会社 PC で vsix を入れ、ドライバで実際の DB に繋いで確かめる（§14）。結果をマスクして持ち帰り、O-02・O-11 を更新する
 
 ## 11. spreadsheet-grid の調査結果（O-04、v0.40.0）
 
@@ -297,16 +312,16 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
 
 ## 12. 開発の手順（2026-09-24）
 
-- 確認：`pnpm lint`、`pnpm typecheck`、`pnpm test`（core と host の単体テスト）。
+- 確認：`pnpm lint`、`pnpm typecheck`、`pnpm test`（core・host・ドライバの単体テスト。ドライバは偽の接続で確かめる）。
 - **開発用ページ**（ブラウザで画面を確かめる）：`pnpm --filter @sql-editor-tool/webview dev:build` のあと、`packages/webview/dev/index.html` をブラウザで開く。ホスト側の制御とデモ接続を同じページの中で動かす。クエリで切り替えられる（`?table=CUSTOMERS&dialect=oracle&maxRows=5000`）。
 - **拡張のビルド**：`pnpm --filter sql-editor-tool build`（`packages/extension/dist/` に拡張本体と Webview を出力）。VS Code で `packages/extension` を拡張開発ホストとして開けば試せる。
-- **vsix**：`pnpm --filter sql-editor-tool package:vsix`（`releases/` に出力。コミットしない）。会社 PC の VS Code に入れれば、デモ接続で動きを確かめられる。
+- **vsix**：`pnpm --filter sql-editor-tool package:vsix`（`releases/` に出力。コミットしない）。会社 PC の VS Code（1.101 以降、D-22）に入れれば、デモ接続と実際の DB で動きを確かめられる。
 - デモ接続は架空のデータ（受注・得意先・品目と、ビュー 1 つ）で、社内のテーブルとは関係ない。SQL は作るが、条件で行を絞り込まない（並べ替えと件数の上限だけ効く）。画面にもその旨を出している。
 - Webview の注意点（実装して分かったこと）：
   - グリッドの `height="100%"` は内側のスクロール領域に当たる。外枠（`.ssg-root`）を縦の flex にし、`.ssg-shell` を伸ばさないと全行が描画される（仮想スクロールが効かない）。`packages/webview/src/styles.css` で対応済み。
   - 列メニューのボタンは、ヘッダにマウスを乗せたときだけ操作できる（自動操作で確かめるときは hover が要る）。
   - 行の高さは `density="compact"`。文字列の列は `textSet`、数値は `numberSet`、日付型と意味型が日付の列は `dateSet`。主キーの列は見出しに 🔑 を付ける。
-- 設定：`sqlEditorTool.maxRows`（既定 10 万、D-11）、`sqlEditorTool.filterOptionsLimit`（既定 1 万、D-16）。設定名とコマンド名の接頭辞 `sqlEditorTool` は仮称（D-13）。名前が決まったら置き換える。
+- 設定：`sqlEditorTool.maxRows`（既定 10 万、D-11）、`sqlEditorTool.filterOptionsLimit`（既定 1 万、D-16）、`sqlEditorTool.oracle.clientMode`（`thin` / `thick`、既定 `thin`。変えたらウィンドウの再読み込みが要る。D-21）、`sqlEditorTool.oracle.clientLibDir`（Thick のときの Oracle Client のフォルダ。空なら PATH から探す）、`sqlEditorTool.mssql.tlsMinVersion`（ログインの TLS の最低の版。既定は空＝TLS 1.2 以上。O-11）。設定名とコマンド名の接頭辞 `sqlEditorTool` は仮称（D-13）。名前が決まったら置き換える。
 
 ## 13. 会社 PC での確認結果（2026-09-25）
 
@@ -329,9 +344,9 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
 
 - バージョン：19.19.0.0.0、Standard Edition 2。文字コード `JA16SJIS`、各国語文字コード `AL16UTF16`、`NLS_LENGTH_SEMANTICS = BYTE`。
 - 型の分布（対象スキーマの全列）：VARCHAR2 6,447、NUMBER 2,013、DATE 96、CHAR 12、NVARCHAR2 8、BLOB 6。
-  - CHAR は 12 列だけなので、`RPAD` の問題（O-09 (3)）の影響は小さい。BLOB は表示の対象外にする（ドライバ実装時に扱いを決める）。
+  - CHAR は 12 列だけなので、`RPAD` の問題（O-09 (3)）の影響は小さい。BLOB は表示の対象外にする（中身は取らず「（BLOB n バイト）」と出す。§7）。
 - NUMBER の精度（2,013 列）：精度の指定がない列が 669（うち 29 は位取り 0）。指定がある列は最大 13 桁。
-  - 精度の指定がない NUMBER は 38 桁まで入りうる。16 桁以上の値が実際にあるかは列次第なので、ドライバでは「精度の指定がない NUMBER は文字列で取得する」か「値を見て判断する」かを決める（ドライバ実装時）。
+  - 精度の指定がない NUMBER は 38 桁まで入りうる。16 桁以上の値が実際にあるかは列次第なので、ドライバでは精度の指定がない NUMBER と 16 桁以上の NUMBER を文字列で取得する（D-23）。
 - 日付らしい列（型か列名で抽出、360 列）：VARCHAR2(10) 115、VARCHAR2(20) 105、DATE 96、VARCHAR2(50) 17、VARCHAR2(22) 11、NUMBER 10、ほかは少数。長さ 8 の文字列はない。
   - SQL Server と違い、Oracle では `yyyymmdd` の運用は見当たらない。VARCHAR2(10) は `yyyy/mm/dd`、VARCHAR2(20) は日時の文字列の可能性がある（O-10）。
 - 主キーの列数ごとのテーブル数：1 列 83、2 列 120、3 列 86、4 列 47、5 列 19、6 列 29、7 列 8、8 列 3、9 列 2、11 列 2、15 列 1、16 列 2。主キーのないテーブル 42。外部キー 7。
@@ -342,4 +357,22 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
   - キーの上書き：主キーのないテーブルが多いので必要。キーがないときの既定の ORDER BY は付けない（取得の順は DB 任せ）で進める。
   - 意味型：SQL Server の `yyyymmdd` はいまの core（`SemanticType = { kind: "date"; format: "yyyymmdd" }`）で扱える。ほかの書式は O-10 の結果を見て `format` を増やす。型を `format` 付きにしてあるので、増やしやすい。
 - ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）。数値の精度は上のとおり、SQL Server は 16 桁以上の decimal / numeric、Oracle は精度の指定がない NUMBER を文字列で取得する前提で設計する。
+
+## 14. 会社 PC での確認手順（ドライバ、2026-09-26）
+
+`releases/sql-editor-tool-0.1.0.vsix` を会社 PC の VS Code に入れて確かめる。持ち帰るのは、成否・件数・所要時間・エラーの番号とメッセージだけにし、ホスト名・IP・DB 名・スキーマ名・テーブル名・業務データは伏せる。
+
+1. VS Code の「ヘルプ → バージョン情報」で、VS Code と Node.js の版を控える（D-22）。
+2. SQL Server：接続を追加 → ツリーでスキーマ → テーブルまで開けるか。
+   - TLS のエラー（`ssl`、`tls`、`handshake` などを含む）なら、設定 `sqlEditorTool.mssql.tlsMinVersion` を `TLSv1` にして、接続を「切断」してから開き直す（O-11）。
+3. SQL Server：テーブルを開いて実行する。
+   - 日本語が文字化けしないか。
+   - 日付の表示（date、datetime、`yyyymmdd` の nvarchar(8)）。
+   - 16 桁以上の numeric / decimal の列の値が、A5:SQL Mk-2 で見た値と一致するか（D-23）。
+   - 列見出しのフィルタ：文字列の「含む」、値の選択（候補が出るまでの時間）、数値の範囲、datetime 列の日付。SQL をコピーして A5 で実行した件数と一致するか。
+   - 大きいテーブルで実行 → 途中で「中止」→ すぐ止まるか。続けてもう一度実行できるか。
+4. Oracle：接続を追加（Thin）→ ツリー → テーブルを開いて実行。
+   - 繋がらなければ、エラーの番号（`NJS-…` / `ORA-…`）を控え、設定 `sqlEditorTool.oracle.clientMode` を `thick`（Oracle Client が PATH にないなら `sqlEditorTool.oracle.clientLibDir` も）にして、ウィンドウを再読み込みしてから試す（O-02、D-21）。
+   - 精度の指定がない NUMBER の値、DATE の表示（時刻）、CHAR 列の「等しい」条件、NVARCHAR2 の日本語。
+   - 「中止」がすぐ効くか。
 

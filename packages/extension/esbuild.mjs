@@ -1,5 +1,7 @@
 // 拡張本体（Node）と Webview の画面（ブラウザ）をまとめてビルドする。出力は dist/
-import { mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { context } from "esbuild";
 
 const production = process.argv.includes("--production");
@@ -27,8 +29,8 @@ const contexts = await Promise.all([
     outfile: here("./dist/extension.js"),
     format: "cjs",
     platform: "node",
-    // VS Code 1.75 の Node は 16
-    target: "node16",
+    // VS Code 1.101 以降の Node は 22（tedious 20 が Node 22 以上を求める）
+    target: "node22",
     external: ["vscode"],
   }),
   context({
@@ -47,9 +49,32 @@ const contexts = await Promise.all([
   }),
 ]);
 
+copyOracleBinaries();
+
 if (watch) {
   await Promise.all(contexts.map((ctx) => ctx.watch()));
 } else {
   await Promise.all(contexts.map((ctx) => ctx.rebuild()));
   await Promise.all(contexts.map((ctx) => ctx.dispose()));
+}
+
+/**
+ * node-oracledb の Thick モード用のバイナリ（.node）を dist/oracledb/ に置く。
+ * JavaScript はまとめて extension.js に入るが、バイナリはまとめられないので、initOracleClient の binaryDir で指す（D-21）。
+ * vsix（会社 PC は Windows）には win32-x64 だけを入れる
+ */
+function copyOracleBinaries() {
+  const require = createRequire(here("../driver-oracle/package.json"));
+  const release = join(
+    dirname(require.resolve("oracledb/package.json")),
+    "build",
+    "Release",
+  );
+  const out = here("./dist/oracledb");
+  mkdirSync(out, { recursive: true });
+  for (const file of readdirSync(release)) {
+    if (!file.endsWith(".node")) continue;
+    if (production && !file.endsWith("-win32-x64.node")) continue;
+    copyFileSync(join(release, file), join(out, file));
+  }
 }

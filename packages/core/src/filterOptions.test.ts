@@ -120,6 +120,28 @@ describe("buildFilterOptionsQuery", () => {
       ).toThrow("候補の上限は 1 以上の整数");
     }
   });
+  test("16 桁以上の decimal（asText）は文字列にして取り、元の数値の順に並べる", () => {
+    const wide: ColumnInfo[] = [
+      {
+        name: "AMOUNT",
+        type: { kind: "number", precision: 33, scale: 23, asText: true },
+      },
+    ];
+    const q = buildFilterOptionsQuery({
+      dialect: "mssql",
+      source,
+      columns: wide,
+      columnKey: "AMOUNT",
+      limit: 100,
+    });
+    expect(q.sql).toBe(
+      [
+        "SELECT DISTINCT TOP (@p1) CONVERT(varchar(40), [AMOUNT]) AS [OPTION_VALUE], [AMOUNT] AS [OPTION_ORDER]",
+        "FROM [APP].[ORDERS]",
+        "ORDER BY [OPTION_ORDER]",
+      ].join("\n"),
+    );
+  });
 });
 
 describe("toFilterOptions", () => {
