@@ -1,6 +1,6 @@
 # 引き継ぎ資料：A5:SQL Mk-2 代替 GUI 検索ツール（仮称未定）
 
-最終更新：2026-09-26（ドライバ（driver-mssql / driver-oracle）を作り、拡張から使えるようにした。D-07 を更新し、D-22〜D-24、O-11 を追加。会社 PC での確認手順を §14 に置いた）
+最終更新：2026-09-26（ドライバ（driver-mssql / driver-oracle）を作り、拡張から使えるようにした。D-07 を更新し、D-22〜D-24、O-11 を追加。会社 PC での確認手順を §14 に置き、SQL Server の確認結果を記録した（O-03、O-11 を解決））
 
 このドキュメントは、チャットで検討した内容を Claude Code で途中から再開するためのものです。
 「確定」はユーザーが合意したもの、「提案」は Claude が提案してユーザーが概ね合意した段階のもの、「未確定」は要確認・要決定のものです。
@@ -67,7 +67,7 @@
 |---|---|---|---|
 | O-01 | Oracle 側の日付は DATE 型か、`yyyymmdd` 文字列か。DATE 型なら時刻部分を使っているか | `verify/` の SQL で確認 | 一部確認（§13）：両方ある（DATE 96 列、日付らしい VARCHAR2(10) / (20) が約 220 列）。DATE の時刻の使用は未確認（`manual/date_time_usage.sql` を代表的な列で実行する） |
 | O-02 | Oracle に node-oracledb の Thin モードで接続できるか（バージョン、パスワード方式、ネイティブネットワーク暗号化の要否） | `verify/oracle-run.mjs` | 一部確認：19.19 は Thin モードの対象。`JA16SJIS` も Thin モードではサーバー側で変換される（node-oracledb の文書）。接続そのもの（パスワード方式、暗号化の要否）は未確認。接続できる想定で進める（D-21）。ドライバを会社 PC で初めて使うときに確かめる（§14）。繋がらなければ設定で Thick モードに切り替える |
-| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 解決：バージョンは 2012 SP2（§13）。Node.js からの接続は実績があるので確認済みとみなす（D-21） |
+| O-03 | SQL Server のバージョンの確定と、VS Code 内蔵 Node.js（Bun ではない）で `encrypt: false` の接続ができるか | `verify/mssql-run.mjs` | 解決：バージョンは 2012 SP2（§13）。拡張（VS Code 内蔵の Node、tedious、`encrypt: false`）から接続できた（2026-09-26、§14.1） |
 | O-04 | spreadsheet-grid に「クライアント行モデルのまま、フィルタ操作を記述子として外に通知するだけで、グリッド自身では絞り込まない」モード（外部フィルタモード）があるか。なければライブラリ側に追加 | spreadsheet-grid のコードを確認 | 確認済み：v0.40.0 には**ない**（§11）→ v0.41.0 で `manualFiltering` として追加された（§11.5、D-14） |
 | O-05 | プロダクト名（リポジトリ名）。将来 A5 のような汎用 SQL エディタに育つ可能性もあるので、「フィルタ」に限定しない名前がよい。好み：短いローマ字の日本語で、掛け言葉になっている日常語 | ユーザーが決定 | 未確定。キープ：kumu（汲む／組む）、hikidashi（引き出し）。見送り：shiboru、saguru、shirabe、sukuu、tansu、hishaku、tsurube、ami、taguru、ukagau、yomu、furui、hikiami、mekuru、toru |
 | O-06 | コーディング規約（Biome、TS strict、改行コード、日本語コメントなど）。既存の spreadsheet-grid / Hayami に合わせるか | ユーザーが決定 | 解決（D-10） |
@@ -75,7 +75,7 @@
 | O-08 | spreadsheet-grid に足りない機能（§11.3）を、ライブラリ側に追加するか、アプリ側の回避策で済ませるか | ユーザーが決定 | 解決（D-12） |
 | O-09 | 文字列比較の細部。(1) 大文字小文字：グリッドのクライアント側判定は区別しない。SQL Server は照合順序次第（多くは区別しない）、Oracle は既定で区別する。Oracle で区別しないようにすると `UPPER(col)` でインデックスが効かなくなる。(2) 空白だけの値：グリッドは空欄として扱う。SQL Server の `col = ''` は末尾空白を無視するので一致するが、Oracle の `col IS NULL` は一致しない（CHAR 列に空白を入れて「空」としている運用がないか）。(3) Oracle の CHAR 列の `RPAD(:p, 列長)`：RPAD の長さは表示幅なので、全角文字を含む値や BYTE 単位の列長で合わない可能性がある。node-oracledb で `DB_TYPE_CHAR` としてバインドする案もある | 会社 PC で確認（O-03 の照合順序、`verify/` の型の分布、CHAR 列での実際の比較）。(1) はその結果を見てユーザーが決定 | 一部確認（§13）：SQL Server は `Japanese_CI_AS`（大文字小文字・全角半角・ひらがなカタカナを区別しない）。Oracle の CHAR 列は 12 列だけ、NLS_LENGTH_SEMANTICS は BYTE なので、(3) の影響は小さい。(1) の方針は未決定 |
 | O-10 | 文字列（と数値）で持つ日付の書式。`yyyymmdd` 以外に、SQL Server の nvarchar(10) / (14) / (17) と numeric の日付らしい列、Oracle の VARCHAR2(10) / (20) がある。区切り付き（`yyyy/mm/dd`）や時刻付き（`yyyymmddhhmmss`）なら、意味型（D-06）に書式を持たせる必要がある | 代表的な列で `verify/sql/*/manual/string_date_format.sql` を実行し、書式（数字を 9 に置き換えた形）を持ち帰る | 未確定 |
-| O-11 | SQL Server 2012 SP2（11.0.5058）へのログインの TLS。tedious は `encrypt: false` でもログインの間は TLS を使う。この版は TLS 1.2 に対応する更新より前の可能性があり、VS Code 1.101 の Node 22 の既定（TLS 1.2 以上）では失敗するかもしれない | 会社 PC で拡張から接続する（§14）。TLS のエラーなら設定 `sqlEditorTool.mssql.tlsMinVersion` を `TLSv1` にして再試行する | 念のための備え。D-21 では接続は確認済みとみなしている。拡張から繋がれば解決 |
+| O-11 | SQL Server 2012 SP2（11.0.5058）へのログインの TLS。tedious は `encrypt: false` でもログインの間は TLS を使う。この版は TLS 1.2 に対応する更新より前の可能性があり、VS Code 1.101 の Node 22 の既定（TLS 1.2 以上）では失敗するかもしれない | 会社 PC で拡張から接続する（§14）。TLS のエラーなら設定 `sqlEditorTool.mssql.tlsMinVersion` を `TLSv1` にして再試行する | 解決：設定を変えずに（既定の TLS 1.2 以上のまま）接続できた（2026-09-26、§14.1）。設定は残しておく |
 
 ## 5. 段階計画
 
@@ -218,7 +218,7 @@ packages/
    - ~~拡張本体と Webview の土台~~ 済み（デモ接続で、接続の追加 → ツリー → テーブルを開く → フィルタ → SQL プレビュー → 実行 → 取得・中止・上限、まで動く。§12）
    - 残り（段階1）：列の意味型の上書き（日付など）とその候補の提案、キーの上書き、段階2の画面（ベースSQL を開く、`checkBaseColumns`）
    - ~~ドライバ（driver-mssql / driver-oracle）は、接続確認を待たずに作る（D-21）~~ 済み（2026-09-26）。Mac では実 DB に繋げないので、偽の接続での単体テストと、存在しない接続先へのエラーの確認まで
-7. 会社 PC で vsix を入れ、ドライバで実際の DB に繋いで確かめる（§14）。結果をマスクして持ち帰り、O-02・O-11 を更新する
+7. 会社 PC で vsix を入れ、ドライバで実際の DB に繋いで確かめる（§14）。SQL Server は済み（§14.1）。残りは Oracle（O-02）
 
 ## 11. spreadsheet-grid の調査結果（O-04、v0.40.0）
 
@@ -375,4 +375,16 @@ Webview で使うときの注意点（ライブラリの不具合ではなく、
    - 繋がらなければ、エラーの番号（`NJS-…` / `ORA-…`）を控え、設定 `sqlEditorTool.oracle.clientMode` を `thick`（Oracle Client が PATH にないなら `sqlEditorTool.oracle.clientLibDir` も）にして、ウィンドウを再読み込みしてから試す（O-02、D-21）。
    - 精度の指定がない NUMBER の値、DATE の表示（時刻）、CHAR 列の「等しい」条件、NVARCHAR2 の日本語。
    - 「中止」がすぐ効くか。
+
+### 14.1 結果：SQL Server（2026-09-26）
+
+GitHub のプレリリース `v0.1.0` の vsix を会社 PC に入れ、設定は既定のまま確かめた。
+
+- 接続：接続を追加 → ツリーでスキーマ → テーブルの一覧まで表示できた。TLS の設定の変更は不要（O-11 解決）。
+- 表示：日本語の文字化けなし。日付（date、datetime、`yyyymmdd` の文字列）も正しい。
+- 16 桁以上の numeric / decimal：A5:SQL Mk-2 の値とおおむね一致（ユーザーの所感は「おそらく問題なし」。列を決めて突き合わせてはいない）。
+- フィルタ：文字列の「含む」、値の選択、数値の範囲、datetime 列の日付。コピーした SQL を A5 で実行した件数と一致した。
+- 中止：大きいテーブルで途中で止まり、続けて実行もできた。
+
+Oracle はまだ確かめていない（O-02）。
 
