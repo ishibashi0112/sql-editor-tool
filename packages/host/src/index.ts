@@ -11,6 +11,19 @@ export type {
   ViewColumn,
   ViewInit,
 } from "./protocol";
+export { QueryRunner } from "./queryRunner";
+export type {
+  FromReport,
+  ReportFormValues,
+  ReportInit,
+  ToReport,
+} from "./reportProtocol";
+export {
+  type ReportConnection,
+  ReportController,
+  type ReportViewDeps,
+  toViewColumns,
+} from "./reportView";
 export type {
   FromSearchView,
   SearchConnection,

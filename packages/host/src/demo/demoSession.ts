@@ -59,10 +59,10 @@ export class DemoSession implements DbSession {
 
   async query(request: QueryRequest, handlers: QueryHandlers): Promise<void> {
     const { intent } = request;
-    if (intent.source.kind !== "table") {
-      throw new Error("デモ接続ではベースSQL を実行できません");
-    }
-    const table = findTable(intent.source.table);
+    const table =
+      intent.source.kind === "table"
+        ? findTable(intent.source.table)
+        : tableInSql(intent.source.sql);
     handlers.onColumns(table.columns.map(({ name, type }) => ({ name, type })));
     const rows = sortRows(table, intent.sort).slice(0, intent.limit);
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -98,6 +98,22 @@ function findTable(table: TableRef): DemoTable {
   );
   if (!found)
     throw new Error(`テーブル「${table.schema}.${table.name}」がありません`);
+  return found;
+}
+
+/**
+ * ベースSQL・レポートの SQL は解釈しないので、SQL に名前が出てくるデモのテーブルの行をそのまま返す
+ * （WHERE やフォームの値では絞り込まない）
+ */
+function tableInSql(sql: string): DemoTable {
+  const found = DEMO_TABLES.find((t) =>
+    new RegExp(`\\b${t.name}\\b`, "i").test(sql),
+  );
+  if (!found) {
+    throw new Error(
+      `デモ接続では、デモのテーブル（${DEMO_TABLES.map((t) => t.name).join("、")}）を使う SQL だけ実行できます`,
+    );
+  }
   return found;
 }
 

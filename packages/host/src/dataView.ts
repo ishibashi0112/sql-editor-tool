@@ -17,12 +17,8 @@ import type {
   ViewColumn,
   ViewInit,
 } from "./protocol";
-import {
-  type CellValue,
-  type DbSession,
-  isAbortError,
-  type QueryRequest,
-} from "./session";
+import { errorMessage, QueryRunner } from "./queryRunner";
+import type { CellValue, DbSession, QueryRequest } from "./session";
 
 export type DataViewSettings = {
   /** 取得の上限（D-11） */
@@ -48,8 +44,7 @@ export class DataViewController {
   private columns: ViewColumn[] = [];
   private filters: Record<string, ColumnFilterValue> = {};
   private sort: SortEntry[] = [];
-  private queryId = 0;
-  private running: AbortController | null = null;
+  private readonly runner = new QueryRunner((message) => this.post(message));
   private disposed = false;
 
   constructor(private readonly deps: DataViewDeps) {}
@@ -70,7 +65,7 @@ export class DataViewController {
       case "execute":
         return this.execute(message.mode);
       case "cancel":
-        this.running?.abort();
+        this.runner.cancel();
         return;
       case "copySql":
         return this.copySql(message.variant);
@@ -79,7 +74,7 @@ export class DataViewController {
 
   dispose(): void {
     this.disposed = true;
-    this.running?.abort();
+    this.runner.cancel();
   }
 
   private post(message: ToWebview): void {
@@ -159,82 +154,20 @@ export class DataViewController {
   }
 
   private async execute(mode: "all" | "filtered"): Promise<void> {
-    this.running?.abort();
-    const queryId = ++this.queryId;
-    const abort = new AbortController();
-    this.running = abort;
-    const { maxRows } = this.deps.settings;
-    const started = Date.now();
-    let rowCount = 0;
-    let truncated = false;
-    // ドライバのイベントの中で投げた例外は失われることがあるので、覚えておいて中断する
-    let failure: unknown = null;
     const filters = mode === "filtered" ? this.filters : {};
     const sort = mode === "filtered" ? this.effectiveSort() : this.keySort();
-
-    this.post({ type: "queryStarted", queryId, filters });
-    try {
-      const built = this.buildRowsQuery(filters, sort);
-      let reorder: ((row: CellValue[]) => CellValue[]) | null = null;
-      await this.deps.session.query(
-        {
-          sql: built.sql,
-          params: built.params,
-          intent: {
-            kind: "rows",
-            source: this.source,
-            sort,
-            limit: maxRows + 1,
-          },
-        },
-        {
-          signal: abort.signal,
-          onColumns: (columns) => {
-            try {
-              reorder = columnReorder(
-                columns.map((column) => column.name),
-                this.columns,
-              );
-            } catch (error) {
-              failure = error;
-              abort.abort();
-            }
-          },
-          onRows: (rows) => {
-            if (truncated || failure) return;
-            let chunk = reorder ? rows.map(reorder) : rows;
-            if (rowCount + chunk.length > maxRows) {
-              truncated = true;
-              chunk = chunk.slice(0, maxRows - rowCount);
-            }
-            rowCount += chunk.length;
-            if (chunk.length > 0)
-              this.post({ type: "rows", queryId, rows: chunk });
-            // 上限を超えたら、残りは取らない
-            if (truncated) abort.abort();
-          },
-        },
-      );
-    } catch (error) {
-      const cause = failure ?? error;
-      if (!(truncated && isAbortError(cause))) {
-        this.post({
-          type: "queryFailed",
-          queryId,
-          message: errorMessage(cause),
-          cancelled: isAbortError(cause),
-        });
-        return;
-      }
-    } finally {
-      if (this.running === abort) this.running = null;
-    }
-    this.post({
-      type: "queryDone",
-      queryId,
-      rowCount,
-      truncated,
-      elapsedMs: Date.now() - started,
+    const { maxRows } = this.deps.settings;
+    await this.runner.run({
+      session: this.deps.session,
+      maxRows,
+      filters,
+      build: () => this.buildRowsQuery(filters, sort),
+      intent: { kind: "rows", source: this.source, sort, limit: maxRows + 1 },
+      onColumns: (columns) =>
+        columnReorder(
+          columns.map((column) => column.name),
+          this.columns,
+        ),
     });
   }
 
@@ -266,8 +199,4 @@ function columnReorder(
     );
   }
   return (row) => indexes.map((i) => row[i] ?? null);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
