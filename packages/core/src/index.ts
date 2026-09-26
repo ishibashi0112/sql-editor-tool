@@ -29,13 +29,27 @@ export {
 } from "./filterOptions";
 export { assertReadOnlyQuery } from "./readOnly";
 export {
+  isRelativeDate,
+  resolveDateValue,
+  resolveRelativeDate,
+} from "./relativeDate";
+export {
+  type DbParamGuess,
+  type GuessedParamTypes,
+  guessReportParamTypes,
+  hasRelativeDefault,
+  looksLikeDateName,
   parseReportConfig,
   type ReportConfig,
   type ReportParam,
   type ReportParamConfig,
+  type ReportParamProbe,
   type ReportParamType,
   type ReportValues,
+  reportDefaultValue,
+  reportParamProbe,
   reportParams,
+  withGuessedTypes,
   writeReportConfig,
 } from "./report";
 export type {
@@ -47,6 +61,7 @@ export type {
 } from "./schema";
 export {
   type BuiltQuery,
+  buildOptionsQuery,
   buildReportQuery,
   buildSelect,
   buildWhere,

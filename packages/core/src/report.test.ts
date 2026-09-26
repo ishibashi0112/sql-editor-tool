@@ -1,11 +1,18 @@
 import { describe, expect, test } from "vitest";
 import {
+  guessReportParamTypes,
+  hasRelativeDefault,
+  looksLikeDateName,
   parseReportConfig,
   type ReportConfig,
+  type ReportParam,
+  reportDefaultValue,
+  reportParamProbe,
   reportParams,
+  withGuessedTypes,
   writeReportConfig,
 } from "./report";
-import { buildReportQuery, buildSelect } from "./select";
+import { buildOptionsQuery, buildReportQuery, buildSelect } from "./select";
 
 // 例の表名・列名は架空
 const SQL = `SELECT * FROM 受注
@@ -28,6 +35,8 @@ describe("reportParams", () => {
         type: "ymd",
         required: true,
         default: "",
+        options: "",
+        guessed: false,
       },
       {
         name: "得意先",
@@ -35,7 +44,23 @@ describe("reportParams", () => {
         type: "text",
         required: false,
         default: "",
+        options: "",
+        guessed: false,
       },
+    ]);
+  });
+
+  test("推定した種類は、設定に種類がない入力欄だけに使う", () => {
+    const params = reportParams(
+      "mssql",
+      `${SQL} AND 数量 = :数量`,
+      { params: { 開始日: { type: "ymd" }, 数量: { label: "数量（個）" } } },
+      { 開始日: "text", 得意先: "text", 数量: "number" },
+    );
+    expect(params.map((p) => [p.name, p.type, p.guessed, p.label])).toEqual([
+      ["開始日", "ymd", false, "開始日"],
+      ["得意先", "text", true, "得意先"],
+      ["数量", "number", true, "数量（個）"],
     ]);
   });
 
@@ -253,5 +278,164 @@ describe("設定のコメント", () => {
 { "connection": 1, "x": 2, "params": { "a": { "type": "color", "required": "yes", "label": "A" }, "b": 3 } }
 */`);
     expect(read).toEqual({ params: { a: { label: "A" } } });
+  });
+});
+
+describe("既定値（相対の日付、D-32・D-33）", () => {
+  const now = new Date(2026, 8, 26);
+  const param = (type: ReportParam["type"], value: string): ReportParam => ({
+    name: "d",
+    label: "d",
+    type,
+    required: true,
+    default: value,
+    options: "",
+    guessed: false,
+  });
+
+  test("日付の種類で相対の日付なら、now を基準に計算する", () => {
+    expect(reportDefaultValue(param("ymd", "月初-1か月"), now)).toBe(
+      "2026-08-01",
+    );
+    expect(reportDefaultValue(param("date", "今日"), now)).toBe("2026-09-26");
+    expect(hasRelativeDefault(param("date", "今日"))).toBe(true);
+  });
+
+  test("日付そのものや、日付でない種類は、書いたまま", () => {
+    expect(reportDefaultValue(param("ymd", "20260901"), now)).toBe("20260901");
+    expect(reportDefaultValue(param("text", "今日"), now)).toBe("今日");
+    expect(hasRelativeDefault(param("text", "今日"))).toBe(false);
+    expect(hasRelativeDefault(param("ymd", "2026-09-01"))).toBe(false);
+  });
+});
+
+describe("選択肢（D-34）", () => {
+  test("設定の options を読み書きする。値は文字列で渡す", () => {
+    const text = `/* @report
+{ "params": { "得意先": { "type": "select", "options": "SELECT コード, 名前 FROM 得意先" } } }
+*/
+SELECT * FROM 受注 WHERE 得意先コード = :得意先`;
+    const { config } = parseReportConfig(text);
+    const [param] = reportParams("mssql", text, config);
+    expect(param?.type).toBe("select");
+    expect(param?.options).toBe("SELECT コード, 名前 FROM 得意先");
+    const q = buildReportQuery({
+      dialect: "mssql",
+      sql: text,
+      config,
+      values: { 得意先: "C001" },
+    });
+    expect(q.params[0]).toEqual({
+      name: "p1",
+      value: "C001",
+      type: { kind: "string", unicode: true },
+    });
+  });
+
+  test("候補の SQL はそのまま実行する形にする。:名前 と読み取り専用でない文は使えない", () => {
+    expect(
+      buildOptionsQuery("oracle", "SELECT code, name FROM t ORDER BY code;")
+        .sql,
+    ).toBe("SELECT code, name FROM t ORDER BY code");
+    expect(() =>
+      buildOptionsQuery("mssql", "SELECT code FROM t WHERE k = :k"),
+    ).toThrow("候補の SQL には :名前 は使えません（:k）");
+    expect(() => buildOptionsQuery("mssql", "DELETE FROM t")).toThrow(
+      "候補の SQL は SELECT か WITH で始まる",
+    );
+  });
+});
+
+describe("入力欄の種類の推定（D-35）", () => {
+  test(":名前 を出現ごとに別のバインド変数にし、IS NULL の出現に印を付ける", () => {
+    expect(reportParamProbe("mssql", SQL)).toEqual({
+      sql: `SELECT * FROM 受注
+WHERE 受注日 >= @p1
+  AND (@p2 IS NULL OR 得意先コード = @p3)`,
+      occurrences: [
+        { placeholder: "p1", name: "開始日", nullCheck: false },
+        { placeholder: "p2", name: "得意先", nullCheck: true },
+        { placeholder: "p3", name: "得意先", nullCheck: false },
+      ],
+    });
+  });
+
+  test("名前ごとに、最初の出現（IS NULL を除く）の推定を使う", () => {
+    const probe = reportParamProbe(
+      "mssql",
+      `${SQL} AND 数量 = :数量 AND 登録日時 >= :登録 AND 備考 = :数量 AND x = :x`,
+    );
+    expect(
+      guessReportParamTypes(probe, {
+        p1: { kind: "string", length: 4000 },
+        p2: { kind: "number" },
+        p3: { kind: "string", length: 8 },
+        p4: { kind: "number" },
+        p5: { kind: "date" },
+        p6: { kind: "string", length: 100 },
+        p7: { kind: "other" },
+      }),
+    ).toEqual({ 開始日: "ymd", 得意先: "text", 数量: "number", 登録: "date" });
+  });
+
+  test("推定できなかった名前は含めない", () => {
+    const probe = reportParamProbe("mssql", SQL);
+    expect(guessReportParamTypes(probe, { p1: { kind: "date" } })).toEqual({
+      開始日: "date",
+    });
+  });
+
+  test("文字列は、長さが 8 か分からない（4000 以上）で、名前が日付らしいときだけ ymd", () => {
+    const probe = reportParamProbe(
+      "mssql",
+      "SELECT * FROM t WHERE a = :終了日 AND b = :出荷日 AND c = :納期日 AND d = :コード",
+    );
+    expect(
+      guessReportParamTypes(probe, {
+        p1: { kind: "string", length: 8 },
+        p2: { kind: "string", length: null },
+        p3: { kind: "string", length: 10 },
+        p4: { kind: "string", length: 8 },
+      }),
+    ).toEqual({ 終了日: "ymd", 出荷日: "ymd", 納期日: "text", コード: "text" });
+  });
+
+  test("日付らしい名前", () => {
+    for (const name of [
+      "開始日",
+      "受注日_FROM",
+      "SHIP_YMD",
+      "OrderDate",
+      "UPD_DT",
+      "日付",
+    ]) {
+      expect(looksLikeDateName(name), name).toBe(true);
+    }
+    for (const name of [
+      "日数",
+      "曜日",
+      "日本語名",
+      "得意先",
+      "DTYPE",
+      "WIDTH",
+    ]) {
+      expect(looksLikeDateName(name), name).toBe(false);
+    }
+  });
+
+  test("withGuessedTypes は設定の種類を上書きしない", () => {
+    expect(
+      withGuessedTypes(
+        { connection: "c", params: { a: { type: "ymd" }, b: { label: "B" } } },
+        { a: "text", b: "number", c: "date" },
+      ),
+    ).toEqual({
+      connection: "c",
+      params: {
+        a: { type: "ymd" },
+        b: { label: "B", type: "number" },
+        c: { type: "date" },
+      },
+    });
   });
 });

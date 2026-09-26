@@ -1,6 +1,6 @@
 // 段階1（単一テーブル／ビュー）の SELECT 文を組み立てる
 
-import { fromBaseSql, reportStatement } from "./baseSql";
+import { fromBaseSql, optionsStatement, reportStatement } from "./baseSql";
 import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue, SortEntry } from "./filter";
@@ -178,4 +178,16 @@ export function buildReportQuery(input: ReportQueryInput): BuiltQuery {
   const dialect = getDialect(input.dialect);
   const resolve = reportResolver(dialect, input.config, input.values);
   return finish(reportStatement(dialect, input.sql, resolve), dialect);
+}
+
+/**
+ * 選択肢の候補を取る SQL（D-34）。1 列目＝値、2 列目＝表示名。
+ * 件数の上限は SQL に付けず、取得する側が上限 + 1 行で打ち切る
+ */
+export function buildOptionsQuery(
+  dialectName: DialectName,
+  text: string,
+): BuiltQuery {
+  const dialect = getDialect(dialectName);
+  return finish(optionsStatement(dialect, text), dialect);
 }
