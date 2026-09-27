@@ -1,0 +1,9 @@
+{
+  "name": "sql-editor-tool-verify-cloud",
+  "private": true,
+  "description": "code-server の画面を Playwright で操作して確かめるスクリプト（クラウドの Claude Code の環境用）",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  }
+}
