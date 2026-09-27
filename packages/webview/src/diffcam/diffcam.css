@@ -1,0 +1,333 @@
+/* 差分カメラ（D-47）：サイドバーのカメラと、差分のタブ。色は VS Code のテーマの色（差分エディタ・Git の色） */
+
+.diff .spacer,
+.camera .spacer {
+  flex: 1;
+}
+
+button.link {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  cursor: pointer;
+}
+
+button.link:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+button.icon {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+button.icon:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  opacity: 1;
+}
+
+/* サイドバー */
+.cameras {
+  padding: 4px 12px 12px;
+}
+
+.camera-help {
+  color: var(--vscode-descriptionForeground);
+  margin: 4px 0 8px;
+}
+
+.camera {
+  padding: 4px 0 10px;
+  border-bottom: 1px solid
+    var(--vscode-sideBarSectionHeader-border, transparent);
+}
+
+.camera-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+button.fold {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--vscode-foreground);
+  font-weight: 600;
+  text-align: left;
+}
+
+button.fold:hover {
+  background: none;
+}
+
+.camera-meta,
+.table-phys {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.camera-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px 12px;
+}
+
+.camera-state {
+  margin: 4px 0 6px 12px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.camera-state b {
+  color: var(--vscode-foreground);
+}
+
+.camera > button.link {
+  margin-left: 12px;
+}
+
+.camera-tables {
+  list-style: none;
+  margin: 4px 0 2px 12px;
+  padding: 0;
+}
+
+.camera-table {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.table-phys {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+button.camera-where {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0 0 2px 12px;
+  text-align: left;
+  color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+button.camera-where:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+/* 差分のタブ */
+.diff {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.diff-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #d0d7de);
+}
+
+.diff-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.diff-meta {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.diff-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #d0d7de);
+}
+
+a.diff-chip {
+  border: 1px solid var(--vscode-panel-border, #d0d7de);
+  border-radius: 12px;
+  padding: 1px 10px;
+  color: var(--vscode-foreground);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+a.diff-chip:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+
+.a,
+.row-added .diff-kind {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+}
+
+.d,
+.row-deleted .diff-kind {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+}
+
+.c,
+.row-changed .diff-kind {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, #d29922);
+}
+
+.none {
+  color: var(--vscode-descriptionForeground);
+  margin-left: 4px;
+}
+
+.diff-chip .a,
+.diff-chip .c,
+.diff-chip .d {
+  margin-left: 4px;
+}
+
+.diff-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0 16px;
+}
+
+.diff-table h2 {
+  margin: 14px 14px 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.diff-table h2 .phys,
+.diff-table h2 .meta {
+  color: var(--vscode-descriptionForeground);
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.diff-table h2 .phys {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.diff-note {
+  margin: 2px 14px 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-table .notice {
+  margin: 2px 14px 6px;
+}
+
+table.diff-grid {
+  border-collapse: collapse;
+  margin: 4px 14px 6px;
+  font-size: 12.5px;
+}
+
+.diff-grid th,
+.diff-grid td {
+  border: 1px solid var(--vscode-panel-border, #d0d7de);
+  padding: 3px 8px;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.diff-grid th {
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.1));
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+.diff-grid th .logical {
+  display: block;
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.diff-grid td {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.diff-grid .diff-kind {
+  width: 28px;
+  text-align: center;
+  font-family: inherit;
+}
+
+.row-added td {
+  background: var(
+    --vscode-diffEditor-insertedLineBackground,
+    rgba(46, 160, 67, 0.15)
+  );
+}
+
+.row-deleted td {
+  background: var(
+    --vscode-diffEditor-removedLineBackground,
+    rgba(248, 81, 73, 0.14)
+  );
+}
+
+.row-changed td.same {
+  color: var(--vscode-descriptionForeground);
+}
+
+.row-changed td.changed {
+  background: var(
+    --vscode-diffEditor-insertedTextBackground,
+    rgba(210, 153, 34, 0.22)
+  );
+}
+
+td.changed .old {
+  color: var(--vscode-descriptionForeground);
+  text-decoration: line-through;
+}
+
+td.changed .arrow {
+  margin: 0 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
+td.changed .new {
+  font-weight: 600;
+}
+
+.diff-grid .null {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.diff-grid .key {
+  font-size: 11px;
+}

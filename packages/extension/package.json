@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -49,6 +49,12 @@
           "id": "sqlEditorTool.connections",
           "name": "接続",
           "initialSize": 1
+        },
+        {
+          "type": "webview",
+          "id": "sqlEditorTool.diffCamera",
+          "name": "差分カメラ",
+          "initialSize": 1
         }
       ],
       "sqlEditorToolResults": [
@@ -71,6 +77,12 @@
         "title": "SQL を実行",
         "category": "SQL Editor Tool",
         "icon": "$(play)"
+      },
+      {
+        "command": "sqlEditorTool.diffCamera.create",
+        "title": "差分カメラを作る",
+        "category": "SQL Editor Tool",
+        "icon": "$(add)"
       },
       {
         "command": "sqlEditorTool.formatSql",
@@ -133,6 +145,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "sqlEditorTool.diffCamera.create",
+          "when": "view == sqlEditorTool.diffCamera",
+          "group": "navigation"
+        },
         {
           "command": "sqlEditorTool.addConnection",
           "when": "view == sqlEditorTool.connections",
@@ -273,6 +290,12 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "`.sql` の文ごとに「▶ 実行」を出します（Ctrl+Enter でも実行できます）。"
+        },
+        "sqlEditorTool.diffCamera.maxRows": {
+          "type": "integer",
+          "default": 100000,
+          "minimum": 1,
+          "markdownDescription": "差分カメラで撮る、表ごとの行数の上限。超える表は撮らずに「条件で絞ってください」と出します。"
         },
         "sqlEditorTool.format.keywordCase": {
           "type": "string",
