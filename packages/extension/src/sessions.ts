@@ -67,7 +67,7 @@ export class SessionManager {
           port: profile.port,
           database: profile.database,
           user: profile.user,
-          password: await this.password(profile.id),
+          password: await this.password(profile),
           tlsMinVersion: isTlsVersion(tls) ? tls : undefined,
         });
       }
@@ -91,7 +91,7 @@ export class SessionManager {
             port: profile.port,
             serviceName: profile.serviceName,
             user: profile.user,
-            password: await this.password(profile.id),
+            password: await this.password(profile),
           },
           mode,
         );
@@ -99,15 +99,25 @@ export class SessionManager {
     }
   }
 
-  /** ドライバに渡すときだけ読む */
-  private async password(id: string): Promise<string> {
-    const password = await this.store.password(id);
-    if (password === undefined) {
-      throw new Error(
-        "パスワードが保存されていません。接続を追加し直してください",
-      );
+  /**
+   * ドライバに渡すときだけ読む。この PC に保存されていなければ（設定を読み込んだ接続・Settings Sync で来た接続）、
+   * 入力してもらって保存する（D-44）
+   */
+  private async password(profile: ConnectionProfile): Promise<string> {
+    const saved = await this.store.password(profile.id);
+    if (saved !== undefined) return saved;
+    const entered = await vscode.window.showInputBox({
+      title: `接続「${profile.name}」のパスワード`,
+      prompt:
+        "この PC にはまだ保存されていません（設定を読み込んだ接続など）。入力すると、この PC に保存します",
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (entered === undefined) {
+      throw new Error("パスワードを入力しなかったので、接続しませんでした");
     }
-    return password;
+    await this.store.setPassword(profile.id, entered);
+    return entered;
   }
 }
 

@@ -62,7 +62,7 @@
     "viewsWelcome": [
       {
         "view": "sqlEditorTool.connections",
-        "contents": "接続がありません。\n[接続を追加](command:sqlEditorTool.addConnection)"
+        "contents": "接続がありません。\n[接続を追加](command:sqlEditorTool.addConnection)\n別の PC で書き出した設定があれば、読み込めます。\n[設定を読み込む](command:sqlEditorTool.importSettings)"
       }
     ],
     "commands": [
@@ -114,6 +114,16 @@
         "command": "sqlEditorTool.toggleLogicalNameHints",
         "title": "SQL の論理名の表示を切り替える（常に／カーソルの行だけ／出さない）",
         "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.exportSettings",
+        "title": "設定を書き出す（別の PC へ引き継ぐ）",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.importSettings",
+        "title": "設定を読み込む（別の PC で書き出したもの）",
+        "category": "SQL Editor Tool"
       }
     ],
     "menus": {
@@ -127,6 +137,16 @@
           "command": "sqlEditorTool.refresh",
           "when": "view == sqlEditorTool.connections",
           "group": "navigation"
+        },
+        {
+          "command": "sqlEditorTool.exportSettings",
+          "when": "view == sqlEditorTool.connections",
+          "group": "9_transfer@1"
+        },
+        {
+          "command": "sqlEditorTool.importSettings",
+          "when": "view == sqlEditorTool.connections",
+          "group": "9_transfer@2"
         }
       ],
       "view/item/context": [

@@ -31,7 +31,7 @@ export type ConnectionProfile =
       dialect: DialectName;
     };
 
-const PROFILES_KEY = "sqlEditorTool.connections";
+export const PROFILES_KEY = "sqlEditorTool.connections";
 const passwordKey = (id: string) => `sqlEditorTool.password.${id}`;
 
 export class ConnectionStore {
@@ -74,6 +74,11 @@ export class ConnectionStore {
   /** ドライバに渡すときだけ読む */
   password(id: string): Thenable<string | undefined> {
     return this.context.secrets.get(passwordKey(id));
+  }
+
+  /** パスワードを保存する（設定を読み込んだ接続などで、初めてつなぐときに聞いたもの） */
+  async setPassword(id: string, password: string): Promise<void> {
+    await this.context.secrets.store(passwordKey(id), password);
   }
 
   dispose(): void {

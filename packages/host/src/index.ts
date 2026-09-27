@@ -60,6 +60,15 @@ export {
   type TableDescription,
 } from "./session";
 export {
+  commonFolder,
+  fileUris,
+  parseSettingsExport,
+  remapFolders,
+  SETTINGS_FORMAT,
+  SETTINGS_VERSION,
+  type SettingsExport,
+} from "./settingsTransfer";
+export {
   type CompleteInput,
   type CompletionEntry,
   completeSql,

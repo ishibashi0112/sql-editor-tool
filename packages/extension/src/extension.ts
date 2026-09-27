@@ -1,18 +1,25 @@
 // VS Code 拡張のエントリ
 
 import * as vscode from "vscode";
-import { ConnectionStore, promptConnection } from "./connections";
+import { ConnectionStore, PROFILES_KEY, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
+import { STATE_KEYS } from "./fileSettings";
 import { LogicalNameDecorations } from "./logicalNameDecorations";
 import { RESULTS_VIEW_ID, ResultsPanel } from "./resultsPanel";
 import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
+import { exportSettings, importSettings } from "./settingsTransfer";
 import { SqlEditing } from "./sqlEditing";
 import { ConnectionTree, type TreeNode } from "./tree";
 
 let sessions: SessionManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Settings Sync を使っていれば、接続（パスワードは除く）とファイルごとの設定も別の PC に同期する（D-44）
+  context.globalState.setKeysForSync([
+    PROFILES_KEY,
+    ...Object.values(STATE_KEYS),
+  ]);
   const store = new ConnectionStore(context);
   sessions = new SessionManager(store, context.extensionUri);
   const tree = new ConnectionTree(store, sessions);
@@ -54,6 +61,13 @@ export function activate(context: vscode.ExtensionContext): void {
       tree.refresh();
       search.update();
     }),
+
+    vscode.commands.registerCommand("sqlEditorTool.exportSettings", () =>
+      exportSettings(context, store),
+    ),
+    vscode.commands.registerCommand("sqlEditorTool.importSettings", () =>
+      importSettings(context, store),
+    ),
 
     vscode.commands.registerCommand("sqlEditorTool.addConnection", async () => {
       const added = await promptConnection();
