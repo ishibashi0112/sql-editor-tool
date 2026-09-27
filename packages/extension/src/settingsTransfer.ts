@@ -33,6 +33,7 @@ export async function exportSettings(
     paramSettings: state.get(STATE_KEYS.paramSettings, {}),
     formValues: state.get(STATE_KEYS.formValues, {}),
     tableSettings: state.get(STATE_KEYS.tableSettings, {}),
+    diffCameras: state.get(STATE_KEYS.diffCameras, []),
     settings: userSettings(context),
   };
   const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -52,7 +53,7 @@ export async function exportSettings(
     new TextEncoder().encode(JSON.stringify(data, null, 2)),
   );
   const answer = await vscode.window.showInformationMessage(
-    `設定を書き出しました（接続 ${data.connections.length} 件、.sql ごとの設定 ${fileUris(data).length} 件、列の設定 ${Object.keys(data.tableSettings).length} 件）。パスワードは入れていません。入力欄に入れた値は入っています`,
+    `設定を書き出しました（接続 ${data.connections.length} 件、.sql ごとの設定 ${fileUris(data).length} 件、列の設定 ${Object.keys(data.tableSettings).length} 件、差分カメラ ${data.diffCameras.length} 件）。パスワードは入れていません。入力欄に入れた値は入っています`,
     "フォルダを開く",
   );
   if (answer) await vscode.commands.executeCommand("revealFileInOS", target);
@@ -61,6 +62,8 @@ export async function exportSettings(
 export async function importSettings(
   context: vscode.ExtensionContext,
   store: ConnectionStore,
+  /** 読み込んだ後（差分カメラの一覧を出し直す） */
+  onImported?: () => void,
 ): Promise<void> {
   const [picked] =
     (await vscode.window.showOpenDialog({
@@ -119,6 +122,16 @@ export async function importSettings(
   await merge(STATE_KEYS.paramSettings, data.paramSettings);
   await merge(STATE_KEYS.formValues, data.formValues);
   await merge(STATE_KEYS.tableSettings, data.tableSettings);
+  // 差分カメラは ID で合わせる（同じ ID は読み込んだもので置き換える）
+  const cameras = state.get<Record<string, unknown>[]>(
+    STATE_KEYS.diffCameras,
+    [],
+  );
+  const importedIds = new Set(data.diffCameras.map((c) => c.id));
+  await state.update(STATE_KEYS.diffCameras, [
+    ...cameras.filter((c) => !importedIds.has(c.id)),
+    ...data.diffCameras,
+  ]);
 
   // 接続は、同じ名前のものがなければ足す（パスワードは初めてつなぐときに聞く）
   const names = new Set(store.list().map((p) => p.name));
@@ -147,8 +160,10 @@ export async function importSettings(
       `設定を読み込みました：接続 ${added.length} 件${added.length > 0 ? `（${added.join("、")}。パスワードは初めてつなぐときに入力してください）` : ""}`,
       `.sql ごとの設定 ${fileUris(data).length} 件`,
       `列の設定 ${Object.keys(data.tableSettings).length} 件`,
+      `差分カメラ ${data.diffCameras.length} 件`,
     ].join("、"),
   );
+  onImported?.();
 }
 
 /** 拡張の設定のうち、利用者が自分で変えたもの（ユーザーの設定） */

@@ -27,7 +27,10 @@ export type OpenDataViewInput = {
 const TABLE_SETTINGS_KEY = STATE_KEYS.tableSettings;
 
 /** 列の設定は、接続名・スキーマ・テーブルごとに持つ（接続の ID は PC ごとに違うので、レポートと同じく名前で結び付ける） */
-function tableSettingsKey(connectionName: string, table: TableRef): string {
+export function tableSettingsKey(
+  connectionName: string,
+  table: TableRef,
+): string {
   return JSON.stringify([connectionName, table.schema, table.name]);
 }
 

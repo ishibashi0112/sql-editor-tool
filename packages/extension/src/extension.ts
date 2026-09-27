@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { ConnectionStore, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
+import { DIFF_CAMERA_VIEW_ID, DiffCameraPanel } from "./diffCameraPanel";
 import { LogicalNameDecorations } from "./logicalNameDecorations";
 import { RESULTS_VIEW_ID, ResultsPanel } from "./resultsPanel";
 import { TableSearchView } from "./searchView";
@@ -21,6 +22,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const manager = sessions;
   const search = new TableSearchView(context.extensionUri, store, manager);
   const editing = new SqlEditing(store, manager, context.globalState);
+  // 実行や撮影の経過（「出力」の SQL Editor Tool）。SQL の本文・入力した値・パスワードは書かない
+  const output = vscode.window.createOutputChannel("SQL Editor Tool", {
+    log: true,
+  });
   // .sql の実行と「SQL の結果」のパネル（D-41）
   const results = new ResultsPanel({
     extensionUri: context.extensionUri,
@@ -28,6 +33,16 @@ export function activate(context: vscode.ExtensionContext): void {
     sessions: manager,
     editing,
     state: context.globalState,
+    output,
+  });
+  // 差分カメラ（D-47）
+  const cameras = new DiffCameraPanel({
+    extensionUri: context.extensionUri,
+    store,
+    sessions: manager,
+    editing,
+    state: context.globalState,
+    output,
   });
   context.subscriptions.push(
     store,
@@ -43,6 +58,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.window.registerWebviewViewProvider("sqlEditorTool.search", search, {
       // 入力中の文字と結果を、サイドバーを切り替えても保つ
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    output,
+    cameras,
+    vscode.window.registerWebviewViewProvider(DIFF_CAMERA_VIEW_ID, cameras, {
+      // 撮った状態の表示を、サイドバーを切り替えても保つ
       webviewOptions: { retainContextWhenHidden: true },
     }),
     results,
@@ -63,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
       exportSettings(context, store),
     ),
     vscode.commands.registerCommand("sqlEditorTool.importSettings", () =>
-      importSettings(context, store),
+      importSettings(context, store, () => cameras.reload()),
     ),
 
     vscode.commands.registerCommand("sqlEditorTool.addConnection", async () => {

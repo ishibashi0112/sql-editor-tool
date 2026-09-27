@@ -20,6 +20,8 @@ export type SettingsExport = {
   formValues: Record<string, unknown>;
   /** [接続名, スキーマ, テーブル] の JSON → 列の設定 */
   tableSettings: Record<string, unknown>;
+  /** 差分カメラ（D-47）。0.11.0 より前の書き出しにはない */
+  diffCameras: Record<string, unknown>[];
   /** 拡張の設定（sqlEditorTool. を除いた名前 → 値）。自分で変えたものだけ */
   settings: Record<string, unknown>;
 };
@@ -63,6 +65,14 @@ export function parseSettingsExport(value: unknown): SettingsExport {
     paramSettings: record("paramSettings"),
     formValues: record("formValues"),
     tableSettings: record("tableSettings"),
+    diffCameras: Array.isArray(value.diffCameras)
+      ? value.diffCameras.filter(
+          (c): c is Record<string, unknown> =>
+            isObject(c) &&
+            typeof c.id === "string" &&
+            typeof c.name === "string",
+        )
+      : [],
     settings: record("settings"),
   };
 }

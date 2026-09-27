@@ -25,6 +25,9 @@ const exported: SettingsExport = {
   },
   formValues: { "file:///C%3A/Users/a/sql/x.sql": { 開始日: "20260901" } },
   tableSettings: { '["基幹","dbo","T"]': { keyColumns: ["A"] } },
+  diffCameras: [
+    { id: "c1", name: "受注登録の確認", connection: "基幹", tables: [] },
+  ],
   settings: { maxRows: 50000 },
 };
 

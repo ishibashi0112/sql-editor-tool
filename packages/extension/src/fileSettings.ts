@@ -19,6 +19,8 @@ export const STATE_KEYS = {
   formValues: "sqlEditorTool.reportValues",
   /** [接続名, スキーマ, テーブル] の JSON → 列の設定（D-36） */
   tableSettings: "sqlEditorTool.tableSettings",
+  /** 差分カメラ（名前・接続・見る表と条件）の並び（D-47） */
+  diffCameras: "sqlEditorTool.diffCameras",
 } as const;
 
 type ParamSettings = Record<string, ReportParamConfig>;

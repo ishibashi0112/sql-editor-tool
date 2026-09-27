@@ -767,6 +767,19 @@ const EXTRA_KEYWORDS = [
   "GO",
 ];
 
+/** offset が文字列かコメントの中か（書きかけで閉じていなくてもよい） */
+export function isInsideLiteral(
+  dialect: Dialect,
+  text: string,
+  offset: number,
+): boolean {
+  return scan(dialect, text).opaque.some(
+    (o) =>
+      offset > o.start &&
+      (offset < o.end || ((o.open || o.line) && offset === o.end)),
+  );
+}
+
 /** 補完で入れる名前。予約語や記号を含む名前、Oracle の小文字を含む名前は引用符で囲む */
 export function completionIdentifier(dialect: Dialect, name: string): string {
   const plain =

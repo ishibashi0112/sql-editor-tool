@@ -3,6 +3,7 @@ export {
   type CompletionContext,
   completionContext,
   completionIdentifier,
+  isInsideLiteral,
   type NameReference,
   type SqlName,
   type SqlOutline,
@@ -26,6 +27,16 @@ export {
   mssql,
   oracle,
 } from "./dialect";
+export {
+  type DiffTextTable,
+  type DiffValue,
+  diffTable,
+  diffText,
+  type RowChange,
+  summary as diffSummary,
+  type TableDiff,
+  type TableSnapshot,
+} from "./diffCamera";
 export { QueryBuildError } from "./errors";
 export type {
   ColumnFilterValue,
@@ -93,6 +104,7 @@ export {
   buildReportQuery,
   buildSelect,
   buildWhere,
+  checkCondition,
   type ReportQueryInput,
   type SelectInput,
   type WhereInput,

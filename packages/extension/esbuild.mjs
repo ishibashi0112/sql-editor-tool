@@ -35,11 +35,14 @@ const contexts = await Promise.all([
   }),
   context({
     ...common,
-    // データビュー（main）、サイドバーのテーブル検索（search）、SQL の結果のパネル（results）
+    // データビュー（main）、サイドバーのテーブル検索（search）、SQL の結果のパネル（results）、
+    // 差分カメラのサイドバー（camera）と差分のタブ（diff）
     entryPoints: {
       main: here("../webview/src/main.tsx"),
       search: here("../webview/src/search/main.ts"),
       results: here("../webview/src/results/main.tsx"),
+      camera: here("../webview/src/diffcam/camera.tsx"),
+      diff: here("../webview/src/diffcam/diff.tsx"),
     },
     outdir: here("./dist/webview"),
     format: "iife",
