@@ -31,7 +31,7 @@ export type ConnectionProfile =
       dialect: DialectName;
     };
 
-export const PROFILES_KEY = "sqlEditorTool.connections";
+const PROFILES_KEY = "sqlEditorTool.connections";
 const passwordKey = (id: string) => `sqlEditorTool.password.${id}`;
 
 export class ConnectionStore {

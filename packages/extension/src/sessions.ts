@@ -100,7 +100,7 @@ export class SessionManager {
   }
 
   /**
-   * ドライバに渡すときだけ読む。この PC に保存されていなければ（設定を読み込んだ接続・Settings Sync で来た接続）、
+   * ドライバに渡すときだけ読む。この PC に保存されていなければ（設定を読み込んだ接続など）、
    * 入力してもらって保存する（D-44）
    */
   private async password(profile: ConnectionProfile): Promise<string> {
