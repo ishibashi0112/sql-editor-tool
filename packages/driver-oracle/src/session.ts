@@ -1,6 +1,10 @@
 // Oracle のセッション（DbSession の実装）。node-oracledb の接続プールを使う
 
-import { assertReadOnlyQuery, type TableRef } from "@sql-editor-tool/core";
+import {
+  assertReadOnlyQuery,
+  splitDbComment,
+  type TableRef,
+} from "@sql-editor-tool/core";
 import {
   abortError,
   type CellValue,
@@ -157,6 +161,7 @@ export class OracleSession implements DbSession {
     return rows.map((row) => ({
       name: String(row[0]),
       kind: row[1] === "V" ? "view" : "table",
+      ...splitDbComment(textOrNull(row[2])),
     }));
   }
 
@@ -166,6 +171,7 @@ export class OracleSession implements DbSession {
       schema: String(row[0]),
       name: String(row[1]),
       kind: row[2] === "V" ? "view" : "table",
+      ...splitDbComment(textOrNull(row[3])),
     }));
   }
 
@@ -188,6 +194,7 @@ export class OracleSession implements DbSession {
           charUsed,
           precision,
           scale,
+          comment,
         ]) => ({
           name: String(name),
           type: toColumnType({
@@ -198,6 +205,7 @@ export class OracleSession implements DbSession {
             precision: precision === null ? null : Number(precision),
             scale: scale === null ? null : Number(scale),
           }),
+          ...splitDbComment(textOrNull(comment)),
         }),
       ),
       primaryKey: primaryKey.map((row) => String(row[0])),
@@ -286,6 +294,10 @@ export class OracleSession implements DbSession {
       await connection.close({ drop: breaking !== null }).catch(() => {});
     }
   }
+}
+
+function textOrNull(value: CellValue | undefined): string | null {
+  return value === null || value === undefined ? null : String(value);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

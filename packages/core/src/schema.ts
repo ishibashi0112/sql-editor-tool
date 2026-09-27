@@ -1,5 +1,6 @@
 // スキーマモデル。DB 上の型と「意味上の型」を分けて持つ（D-06）
 
+import type { LogicalName } from "./logicalName";
 import type { ReportConfig, ReportValues } from "./report";
 
 /** DB 上の型を、SQL の生成に必要な粒度にまとめたもの。ドライバのアダプタがメタデータから作る */
@@ -33,7 +34,7 @@ export type ColumnType =
 /** 意味上の型。例：VARCHAR(8) だが中身は yyyymmdd の日付 */
 export type SemanticType = { kind: "date"; format: "yyyymmdd" };
 
-export type ColumnInfo = {
+export type ColumnInfo = LogicalName & {
   /** DB 上の列名（引用符なし、格納されているとおりの大文字小文字）。グリッドの列キーにも使う */
   name: string;
   type: ColumnType;

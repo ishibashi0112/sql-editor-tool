@@ -188,6 +188,25 @@ describe("MssqlSession.query", () => {
     expect(connections[0]?.cancelCount).toBe(1);
   });
 
+  test("結果が 2 つ届いたら（SELECT を 2 つ並べた）、止めてエラーにする", async () => {
+    const { session, connections } = sessionWith((_, c) => {
+      c.columns([{ colName: "X", type: { name: "Int" } }]);
+      c.row([1]);
+      c.columns([{ colName: "Y", type: { name: "Int" } }]);
+      c.row([2]);
+    });
+    const { result, handlers } = collect();
+    await expect(
+      session.query(
+        { sql: "SELECT 1 AS X SELECT 2 AS Y", params: [], intent: rowsIntent },
+        handlers,
+      ),
+    ).rejects.toThrow("1 回に実行できる SELECT は 1 つだけ");
+    expect(connections[0]?.cancelCount).toBe(1);
+    expect(result.names).toEqual(["X"]);
+    expect(result.rows.flat()).not.toContain(2);
+  });
+
   test("DB のエラーはそのまま返し、接続は次にも使う", async () => {
     let calls = 0;
     const { session, connections } = sessionWith((_, c) => {
@@ -225,12 +244,17 @@ describe("MssqlSession のメタデータ", () => {
         { colName: "name", type: { name: "NVarChar" } },
         { colName: "type", type: { name: "Char" } },
       ]);
-      c.row(["ORDERS", "U "]);
-      c.row(["V_ORDERS", "V "]);
+      c.row(["ORDERS", "U ", "受注:受注の明細"]);
+      c.row(["V_ORDERS", "V ", null]);
       c.finish();
     });
     expect(await session.listObjects("APP")).toEqual([
-      { name: "ORDERS", kind: "table" },
+      {
+        name: "ORDERS",
+        kind: "table",
+        logicalName: "受注",
+        comment: "受注の明細",
+      },
       { name: "V_ORDERS", kind: "view" },
     ]);
   });
@@ -238,12 +262,12 @@ describe("MssqlSession のメタデータ", () => {
   test("すべてのスキーマのテーブルとビューを 1 回で取る（テーブル検索用）", async () => {
     const { session, connections } = sessionWith((_, c) => {
       c.columns([]);
-      c.row(["dbo", "ORDERS", "U "]);
-      c.row(["sales", "V_ORDERS", "V "]);
+      c.row(["dbo", "ORDERS", "U ", "受注"]);
+      c.row(["sales", "V_ORDERS", "V ", null]);
       c.finish();
     });
     expect(await session.listAllObjects()).toEqual([
-      { schema: "dbo", name: "ORDERS", kind: "table" },
+      { schema: "dbo", name: "ORDERS", kind: "table", logicalName: "受注" },
       { schema: "sales", name: "V_ORDERS", kind: "view" },
     ]);
     expect(connections[0]?.requests).toHaveLength(1);
@@ -253,8 +277,8 @@ describe("MssqlSession のメタデータ", () => {
     const { session } = sessionWith((sql, c) => {
       if (sql.includes("sys.columns c\nJOIN sys.objects")) {
         c.columns([]);
-        c.row(["ORDER_NO", "nvarchar", 20, 0, 0]);
-        c.row(["AMOUNT", "decimal", 17, 19, 2]);
+        c.row(["ORDER_NO", "nvarchar", 20, 0, 0, "受注番号"]);
+        c.row(["AMOUNT", "decimal", 17, 19, 2, null]);
       } else {
         c.columns([]);
         c.row(["ORDER_NO"]);
@@ -273,6 +297,7 @@ describe("MssqlSession のメタデータ", () => {
             fixedLength: false,
             length: 10,
           },
+          logicalName: "受注番号",
         },
         {
           name: "AMOUNT",

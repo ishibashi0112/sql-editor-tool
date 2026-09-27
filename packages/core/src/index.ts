@@ -3,7 +3,14 @@ export {
   type CompletionContext,
   completionContext,
   completionIdentifier,
+  type NameReference,
+  type SqlName,
+  type SqlOutline,
+  type SqlStatementRange,
+  splitStatements,
   sqlKeywords,
+  sqlOutline,
+  statementAt,
   type TableReference,
   tableReferences,
 } from "./completion";
@@ -35,6 +42,11 @@ export {
   type FilterOptionsResult,
   toFilterOptions,
 } from "./filterOptions";
+export {
+  type LogicalName,
+  shortLogicalName,
+  splitDbComment,
+} from "./logicalName";
 export { assertReadOnlyQuery } from "./readOnly";
 export {
   isRelativeDate,

@@ -51,6 +51,12 @@ export {
   SchemaCache,
 } from "./sqlCompletion";
 export {
+  type ResolveInput,
+  resolveSymbols,
+  type SqlSymbol,
+  symbolAt,
+} from "./sqlSymbols";
+export {
   type DateTimeParts,
   EXACT_DIGITS,
   formatBinary,

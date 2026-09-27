@@ -189,14 +189,19 @@ describe("OracleSession.query", () => {
 describe("OracleSession のメタデータ", () => {
   test("テーブルとビューを分ける", async () => {
     const { session, connections } = sessionWith(() => ({
-      columns: ["TABLE_NAME", "'T'"],
+      columns: ["TABLE_NAME", "'T'", "COMMENTS"],
       rows: [
-        ["ORDERS", "T"],
-        ["V_ORDERS", "V"],
+        ["ORDERS", "T", "受注\n受注の明細"],
+        ["V_ORDERS", "V", null],
       ],
     }));
     expect(await session.listObjects("APP")).toEqual([
-      { name: "ORDERS", kind: "table" },
+      {
+        name: "ORDERS",
+        kind: "table",
+        logicalName: "受注",
+        comment: "受注の明細",
+      },
       { name: "V_ORDERS", kind: "view" },
     ]);
     expect(connections[0]?.executed[0]?.binds).toEqual({ owner: "APP" });
@@ -204,14 +209,14 @@ describe("OracleSession のメタデータ", () => {
 
   test("すべてのスキーマのテーブルとビューを 1 回で取る（テーブル検索用）", async () => {
     const { session, connections } = sessionWith(() => ({
-      columns: ["OWNER", "TABLE_NAME", "'T'"],
+      columns: ["OWNER", "TABLE_NAME", "'T'", "COMMENTS"],
       rows: [
-        ["APP", "ORDERS", "T"],
-        ["SALES", "V_ORDERS", "V"],
+        ["APP", "ORDERS", "T", "受注"],
+        ["SALES", "V_ORDERS", "V", null],
       ],
     }));
     expect(await session.listAllObjects()).toEqual([
-      { schema: "APP", name: "ORDERS", kind: "table" },
+      { schema: "APP", name: "ORDERS", kind: "table", logicalName: "受注" },
       { schema: "SALES", name: "V_ORDERS", kind: "view" },
     ]);
     expect(connections[0]?.executed).toHaveLength(1);
@@ -223,8 +228,8 @@ describe("OracleSession のメタデータ", () => {
         ? {
             columns: [],
             rows: [
-              ["ORDER_NO", "VARCHAR2", "20", "20", "B", null, null],
-              ["AMOUNT", "NUMBER", "22", "0", null, "12", "2"],
+              ["ORDER_NO", "VARCHAR2", "20", "20", "B", null, null, "受注番号"],
+              ["AMOUNT", "NUMBER", "22", "0", null, "12", "2", null],
             ],
           }
         : { columns: [], rows: [["ORDER_NO"]] },
@@ -241,6 +246,7 @@ describe("OracleSession のメタデータ", () => {
             fixedLength: false,
             length: 20,
           },
+          logicalName: "受注番号",
         },
         {
           name: "AMOUNT",

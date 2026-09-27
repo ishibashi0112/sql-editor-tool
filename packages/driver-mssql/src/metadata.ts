@@ -13,10 +13,18 @@ WHERE EXISTS (
 )
 ORDER BY s.name`;
 
-/** @schema のテーブルとビュー。type は 'U '（テーブル）か 'V '（ビュー） */
-export const LIST_OBJECTS_SQL = `SELECT o.name, o.type
+/**
+ * 論理名（D-40）に使う拡張プロパティ。A5:SQL Mk-2 と同じく MS_Description を読む。
+ * 値は sql_variant なので文字列にする（MS_Description は 7,500 バイトまでなので nvarchar(4000) に収まる）
+ */
+const COMMENT_OF = (minorId: string) => `LEFT JOIN sys.extended_properties ep
+  ON ep.class = 1 AND ep.major_id = o.object_id AND ep.minor_id = ${minorId} AND ep.name = N'MS_Description'`;
+
+/** @schema のテーブルとビュー。type は 'U '（テーブル）か 'V '（ビュー）。comment は論理名のもと */
+export const LIST_OBJECTS_SQL = `SELECT o.name, o.type, CONVERT(nvarchar(4000), ep.value) AS comment
 FROM sys.objects o
 JOIN sys.schemas s ON s.schema_id = o.schema_id
+${COMMENT_OF("0")}
 WHERE s.name = @schema AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0
 ORDER BY o.name`;
 
@@ -24,17 +32,20 @@ ORDER BY o.name`;
  * @schema.@name の列。型は別名の型（CREATE TYPE）でも元の型の名前にする（TYPE_NAME(system_type_id)）。
  * max_length は nvarchar / nchar ではバイト数（文字数の 2 倍）、MAX なら -1
  */
-export const DESCRIBE_COLUMNS_SQL = `SELECT c.name, TYPE_NAME(c.system_type_id) AS type_name, c.max_length, c.precision, c.scale
+export const DESCRIBE_COLUMNS_SQL = `SELECT c.name, TYPE_NAME(c.system_type_id) AS type_name, c.max_length, c.precision, c.scale,
+  CONVERT(nvarchar(4000), ep.value) AS comment
 FROM sys.columns c
 JOIN sys.objects o ON o.object_id = c.object_id
 JOIN sys.schemas s ON s.schema_id = o.schema_id
+${COMMENT_OF("c.column_id")}
 WHERE s.name = @schema AND o.name = @name AND o.type IN ('U', 'V')
 ORDER BY c.column_id`;
 
 /** すべてのスキーマのテーブルとビュー（テーブル検索用） */
-export const LIST_ALL_OBJECTS_SQL = `SELECT s.name, o.name, o.type
+export const LIST_ALL_OBJECTS_SQL = `SELECT s.name, o.name, o.type, CONVERT(nvarchar(4000), ep.value) AS comment
 FROM sys.objects o
 JOIN sys.schemas s ON s.schema_id = o.schema_id
+${COMMENT_OF("0")}
 WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
 ORDER BY s.name, o.name`;
 

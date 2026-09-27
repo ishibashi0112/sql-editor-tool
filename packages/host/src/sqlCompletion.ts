@@ -9,6 +9,7 @@ import {
   getDialect,
   sqlKeywords,
   type TableRef,
+  type TableReference,
   tableReferences,
 } from "@sql-editor-tool/core";
 import type { DbSession, SchemaObject, TableDescription } from "./session";
@@ -21,6 +22,11 @@ export type CompletionEntry = {
   insertText: string;
   /** 並びの順（列はテーブルの列の順） */
   sortText: string;
+  /** 論理名とコメント（D-40）。名前のすぐ横に出し、論理名でも絞り込めるようにする */
+  logicalName?: string;
+  comment?: string;
+  /** 打った文字と比べる文字列。省略時は label */
+  filterText?: string;
 };
 
 /** 接続ごとのテーブルの一覧と列。「最新の情報に更新」や切断で clear する */
@@ -72,8 +78,11 @@ export type CompleteInput = {
 };
 
 /** 名前を比べる（大文字小文字を区別しない。SQL Server の照合順序と、Oracle の引用符なしの名前に合わせる） */
-const same = (a: string | null, b: string | null) =>
+export const same = (a: string | null, b: string | null) =>
   a !== null && b !== null && a.toUpperCase() === b.toUpperCase();
+
+/** 論理名の比べ方（全角半角・大文字小文字を区別しない。テーブル検索と同じ） */
+const normalize = (text: string) => text.normalize("NFKC").toLowerCase();
 
 export async function completeSql(
   input: CompleteInput,
@@ -84,8 +93,21 @@ export async function completeSql(
   switch (context.kind) {
     case "none":
       return [];
-    case "general":
-      return keywords(input.dialect);
+    case "general": {
+      const words = keywords(input.dialect);
+      if (!cache || !context.prefix) return words;
+      // 論理名を打ったら、その文のテーブルの列を出す（D-40。ドットのない列名の補完はしない D-39 は、物理名のまま）
+      const refs = tableReferences(dialect, input.text, input.offset);
+      return [
+        ...(await logicalColumnEntries(
+          input.dialect,
+          cache,
+          refs,
+          context.prefix,
+        )),
+        ...words,
+      ];
+    }
     case "table": {
       if (!cache) return [];
       const objects = await cache.objects();
@@ -135,7 +157,7 @@ export async function completeSql(
 }
 
 /** テーブル・ビューを探す。スキーマを書いていなければ、名前の合うもの（大文字小文字も合うものを優先） */
-function findTable(
+export function findTable(
   objects: readonly SchemaObject[],
   schema: string | null,
   name: string,
@@ -162,8 +184,73 @@ async function columnEntries(
       detail: `${columnTypeLabel(column.type)}${key ? "・主キー" : ""}（${table.name}）`,
       insertText: completionIdentifier(dialect, column.name),
       sortText: `0${String(i).padStart(4, "0")}`,
+      ...logical(column),
     };
   });
+}
+
+/**
+ * 論理名が prefix で始まる列（文の FROM・JOIN のテーブルのもの）。
+ * テーブルが 2 つ以上あれば「別名.列」で入れる（どのテーブルの列か分かるように）
+ */
+async function logicalColumnEntries(
+  dialectName: DialectName,
+  cache: SchemaCache,
+  refs: readonly TableReference[],
+  prefix: string,
+): Promise<CompletionEntry[]> {
+  const dialect = getDialect(dialectName);
+  const wanted = normalize(prefix);
+  const objects = await cache.objects();
+  const tables = refs.flatMap((ref) => {
+    if (ref.name === null || ref.cte) return [];
+    const table = findTable(objects, ref.schema, ref.name);
+    return table ? [{ ref, table }] : [];
+  });
+  const described = await Promise.all(
+    tables.map(({ table }) => cache.describe(table).catch(() => null)),
+  );
+  const entries: CompletionEntry[] = [];
+  for (const [t, { ref, table }] of tables.entries()) {
+    const description = described[t];
+    if (!description) continue;
+    const keys = new Set(description.primaryKey);
+    const qualifier =
+      tables.length > 1
+        ? `${completionIdentifier(dialect, ref.alias ?? ref.name ?? table.name)}.`
+        : "";
+    for (const [i, column] of description.columns.entries()) {
+      const { logicalName } = column;
+      if (!logicalName || !normalize(logicalName).startsWith(wanted)) continue;
+      const key = keys.has(column.name);
+      entries.push({
+        label: `${qualifier}${column.name}`,
+        kind: key ? "key" : "column",
+        detail: `${columnTypeLabel(column.type)}${key ? "・主キー" : ""}（${table.name}）`,
+        insertText: `${qualifier}${completionIdentifier(dialect, column.name)}`,
+        sortText: `0${String(t).padStart(2, "0")}${String(i).padStart(4, "0")}`,
+        ...logical(column),
+        // 打った論理名で絞り込む
+        filterText: logicalName,
+      });
+    }
+  }
+  return entries;
+}
+
+/** 論理名とコメント。論理名でも絞り込めるよう、filterText に名前と論理名を並べる */
+function logical(item: {
+  name: string;
+  logicalName?: string;
+  comment?: string;
+}): Pick<CompletionEntry, "logicalName" | "comment" | "filterText"> {
+  const { name, logicalName, comment } = item;
+  return {
+    ...(logicalName
+      ? { logicalName, filterText: `${name} ${logicalName}` }
+      : {}),
+    ...(comment ? { comment } : {}),
+  };
 }
 
 /**
@@ -193,6 +280,7 @@ function tableEntries(
           ? `${ident(o.schema)}.${ident(o.name)}`
           : ident(o.name),
       sortText: `1${o.name}`,
+      ...logical(o),
     }));
 }
 

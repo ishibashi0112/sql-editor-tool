@@ -310,25 +310,26 @@ const NOT_ALIAS = new Set([
   "OR",
 ]);
 
-/** カーソルのある文（; と、SQL Server の GO の行で区切る）の中のテーブル参照 */
-export function tableReferences(
-  dialect: Dialect,
-  text: string,
-  offset: number,
-): TableReference[] {
-  const { tokens } = scan(dialect, text);
-  const [from, to] = statementRange(dialect, text, tokens, offset);
-  const inStatement = tokens.filter((t) => t.start >= from && t.end <= to);
-  const ctes = cteNames(inStatement);
-  const refs: TableReference[] = [];
+/** 文の中のテーブル参照と、その字句の位置（sqlOutline で、名前の役割を決めるのに使う） */
+type RefTokens = TableReference & {
+  /** テーブル名の並び（スキーマ.名前）の最初と最後の字句の添字。派生テーブルなどでは null */
+  nameTokens: [number, number] | null;
+  /** 別名の字句の添字。なければ null */
+  aliasToken: number | null;
+};
+
+/** 文の字句（tokens）の中のテーブル参照。添字は tokens の中のもの */
+function readReferences(tokens: readonly ScanToken[]): RefTokens[] {
+  const ctes = cteNames(tokens);
+  const refs: RefTokens[] = [];
 
   /** tokens[at] の ( に対応する ) の位置（なければ文の終わり） */
   const closing = (at: number): number => {
-    const depth = inStatement[at]?.depth ?? 0;
+    const depth = tokens[at]?.depth ?? 0;
     let i = at + 1;
     while (
-      i < inStatement.length &&
-      !(isPunct(inStatement[i], ")") && inStatement[i]?.depth === depth)
+      i < tokens.length &&
+      !(isPunct(tokens[i], ")") && tokens[i]?.depth === depth)
     ) {
       i += 1;
     }
@@ -337,9 +338,10 @@ export function tableReferences(
 
   const readRef = (at: number): number => {
     let i = at;
-    const first = inStatement[i];
+    const first = tokens[i];
     let schema: string | null = null;
     let name: string | null = null;
+    let nameTokens: [number, number] | null = null;
     if (isPunct(first, "(")) {
       // 派生テーブル：中の FROM も読み、別名は ) の後
       const close = closing(i);
@@ -348,48 +350,52 @@ export function tableReferences(
     } else if (isIdent(first)) {
       const parts = [identName(first)];
       i += 1;
-      while (isPunct(inStatement[i], ".") && isIdent(inStatement[i + 1])) {
-        parts.push(identName(inStatement[i + 1] as ScanToken));
+      while (isPunct(tokens[i], ".") && isIdent(tokens[i + 1])) {
+        parts.push(identName(tokens[i + 1] as ScanToken));
         i += 2;
       }
       name = parts.at(-1) ?? null;
       schema = parts.length >= 2 ? (parts.at(-2) ?? null) : null;
+      nameTokens = [at, i - 1];
       // テーブル値関数 fn(...)。列は分からない
-      if (isPunct(inStatement[i], "(")) {
+      if (isPunct(tokens[i], "(")) {
         i = closing(i) + 1;
         name = null;
         schema = null;
+        nameTokens = null;
       }
     } else {
       return at + 1;
     }
-    if (isWord(inStatement[i], "AS")) i += 1;
+    if (isWord(tokens[i], "AS")) i += 1;
     let alias: string | null = null;
-    const maybe = inStatement[i];
+    let aliasToken: number | null = null;
+    const maybe = tokens[i];
     if (
       isIdent(maybe) &&
       !(maybe.kind === "word" && NOT_ALIAS.has(maybe.text.toUpperCase()))
     ) {
       alias = identName(maybe);
+      aliasToken = i;
       i += 1;
     }
     // SQL Server のテーブルのヒント WITH (NOLOCK)
-    if (isWord(inStatement[i], "WITH") && isPunct(inStatement[i + 1], "(")) {
+    if (isWord(tokens[i], "WITH") && isPunct(tokens[i + 1], "(")) {
       i = closing(i + 1) + 1;
     }
     const cte =
       schema === null && name !== null && ctes.has(name.toUpperCase());
-    refs.push({ schema, name, alias, cte });
+    refs.push({ schema, name, alias, cte, nameTokens, aliasToken });
     return i;
   };
 
   function walk(from: number, to: number): void {
     for (let i = from; i < to; ) {
-      const t = inStatement[i];
+      const t = tokens[i];
       if (isWord(t, "FROM", "JOIN")) {
         i = readRef(i + 1);
         // FROM a x, b y
-        while (isPunct(inStatement[i], ",") && isWord(t, "FROM")) {
+        while (isPunct(tokens[i], ",") && isWord(t, "FROM")) {
           i = readRef(i + 1);
         }
       } else {
@@ -397,8 +403,30 @@ export function tableReferences(
       }
     }
   }
-  walk(0, inStatement.length);
+  walk(0, tokens.length);
   return refs;
+}
+
+const publicRef = ({
+  schema,
+  name,
+  alias,
+  cte,
+}: RefTokens): TableReference => ({ schema, name, alias, cte });
+
+/** カーソルのある文（; と、SQL Server の GO の行などで区切る。splitStatements と同じ）の中のテーブル参照 */
+export function tableReferences(
+  dialect: Dialect,
+  text: string,
+  offset: number,
+): TableReference[] {
+  const { tokens } = scan(dialect, text);
+  const spans = statementSpans(dialect, text, tokens);
+  // カーソルが文の区切りの直前（; の前など）にあれば、その前の文
+  const span =
+    spans.find((s) => s.from <= offset && offset <= s.to) ?? spans.at(-1);
+  if (!span) return [];
+  return readReferences(tokens.slice(span.first, span.last)).map(publicRef);
 }
 
 /** WITH 名前 [(列…)] AS (…) [, 名前 AS (…)] の名前（大文字） */
@@ -434,34 +462,270 @@ function cteNames(tokens: readonly ScanToken[]): Set<string> {
   return names;
 }
 
-/** カーソルのある文の範囲 [from, to) */
-function statementRange(
+/**
+ * 文の範囲。from〜to は区切り（; や GO の行）の間の全体（前後の空白・コメントを含む）、
+ * first〜last は文の字句の添字 [first, last)
+ */
+type StatementSpan = { from: number; to: number; first: number; last: number };
+
+/**
+ * SQL を文に分ける。区切りは、括弧の外の ;、SQL Server の GO だけの行、Oracle の / だけの行。
+ * A5:SQL Mk-2 などで ; を書かずに問い合わせを並べることがあるので、問い合わせ（SELECT / WITH で始まる文）の
+ * 途中に、括弧の外で新しい問い合わせが始まったら（UNION などの後の SELECT や、WITH の後の本体の SELECT は除く）そこでも分ける
+ */
+function statementSpans(
   dialect: Dialect,
   text: string,
   tokens: readonly ScanToken[],
-  offset: number,
-): [number, number] {
-  const cuts: number[] = [];
-  for (const t of tokens) {
-    if (isPunct(t, ";") && t.depth === 0) cuts.push(t.start);
-    if (dialect.name === "mssql" && isWord(t, "GO")) {
-      const lineStart = text.lastIndexOf("\n", t.start - 1) + 1;
-      const lineEnd = text.indexOf("\n", t.end);
-      const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
-      if (line.trim().toUpperCase() === "GO") cuts.push(t.start);
-    }
-  }
+): StatementSpan[] {
+  const spans: StatementSpan[] = [];
+  let first = 0;
   let from = 0;
-  let to = text.length;
-  for (const cut of cuts) {
-    if (cut < offset) from = cut + 1;
-    else if (cut >= offset) {
-      to = cut;
-      break;
+  /** 今の文で、括弧の外の SELECT が出てきたか（WITH の後の本体の SELECT を見分ける） */
+  let mainSelect = false;
+  const close = (last: number, to: number, nextFrom: number, next: number) => {
+    spans.push({ from, to, first, last });
+    first = next;
+    from = nextFrom;
+    mainSelect = false;
+  };
+  /** 字句だけの行か（GO や / の行） */
+  const aloneOnLine = (t: ScanToken) => {
+    const lineStart = text.lastIndexOf("\n", t.start - 1) + 1;
+    const lineEnd = text.indexOf("\n", t.end);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    return line.trim() === t.text;
+  };
+  for (const [i, t] of tokens.entries()) {
+    if (isPunct(t, ";") && t.depth === 0) {
+      close(i, t.start, t.end, i + 1);
+    } else if (
+      (dialect.name === "mssql" && isWord(t, "GO") && aloneOnLine(t)) ||
+      (dialect.name === "oracle" && t.text === "/" && aloneOnLine(t))
+    ) {
+      close(i, t.start, t.end, i + 1);
+    } else if (i > first && startsQuery(tokens, first, i, mainSelect)) {
+      close(i, t.start, t.start, i);
+    } else if (isWord(t, "SELECT") && t.depth === 0) {
+      mainSelect = true;
     }
   }
-  return [from, to];
+  close(tokens.length, text.length, text.length, tokens.length);
+  return spans;
 }
+
+/** tokens[i] で新しい問い合わせが始まるか（; を書かずに並べた問い合わせの区切り） */
+function startsQuery(
+  tokens: readonly ScanToken[],
+  first: number,
+  i: number,
+  mainSelect: boolean,
+): boolean {
+  const head = tokens[first];
+  const t = tokens[i];
+  // 問い合わせの途中だけ分ける（INSERT ... SELECT などは分けない。読み取り専用なので実行もしない）
+  if (!isWord(head, "SELECT", "WITH") || !t || t.depth !== 0) return false;
+  if (isWord(t, "SELECT")) {
+    // UNION SELECT などは同じ文。WITH の後の最初の SELECT は本体
+    if (isWord(tokens[i - 1], ...SET_OPERATORS, "AS")) return false;
+    return !(isWord(head, "WITH") && !mainSelect);
+  }
+  // WITH 名前 [(列…)] AS ( の形だけ（テーブルのヒントの WITH (NOLOCK) や START WITH などは除く）
+  if (isWord(t, "WITH") && isIdent(tokens[i + 1])) {
+    let j = i + 2;
+    if (isPunct(tokens[j], "(")) {
+      while (j < tokens.length && !isPunct(tokens[j], ")")) j += 1;
+      j += 1;
+    }
+    return isWord(tokens[j], "AS") && isPunct(tokens[j + 1], "(");
+  }
+  return false;
+}
+
+const SET_OPERATORS = ["UNION", "ALL", "INTERSECT", "EXCEPT", "MINUS"];
+
+/** 文の位置。start は最初の字句の先頭、end は最後の字句の終わり（区切りの ; と前後のコメントは含まない） */
+export type SqlStatementRange = { start: number; end: number };
+
+/** SQL を文に分ける（区切りは statementSpans）。コメントや空白だけの文は除く */
+export function splitStatements(
+  dialect: Dialect,
+  text: string,
+): SqlStatementRange[] {
+  const { tokens } = scan(dialect, text);
+  return statementSpans(dialect, text, tokens).flatMap(toRange(tokens));
+}
+
+const toRange =
+  (tokens: readonly ScanToken[]) =>
+  (span: StatementSpan): SqlStatementRange[] => {
+    const firstToken = tokens[span.first];
+    const lastToken = tokens[span.last - 1];
+    return span.last > span.first && firstToken && lastToken
+      ? [{ start: firstToken.start, end: lastToken.end }]
+      : [];
+  };
+
+/**
+ * カーソルの位置で実行する文。文の中か、文の後ろ（次の文の前まで。書き終えた直後の位置）ならその文。
+ * どの文よりも前なら最初の文
+ */
+export function statementAt(
+  statements: readonly SqlStatementRange[],
+  offset: number,
+): SqlStatementRange | undefined {
+  return statements.findLast((s) => s.start <= offset) ?? statements[0];
+}
+
+/** 名前（引用符を外したもの）と、その位置 */
+export type SqlName = { name: string; start: number; end: number };
+
+/** SQL に書いた名前の並び（スキーマ.テーブル.列、別名.列、列 など） */
+export type NameReference = {
+  parts: SqlName[];
+  /** FROM・JOIN の後に書いたテーブル（ビュー）の名前 */
+  table: boolean;
+  /** 名前のある文（SqlOutline の statements の添字） */
+  statement: number;
+  /** 直後に書いた別名（列の別名・テーブルの別名）。なければ null */
+  alias: string | null;
+};
+
+export type SqlOutline = {
+  statements: (SqlStatementRange & { tables: TableReference[] })[];
+  names: NameReference[];
+};
+
+/**
+ * 論理名のホバーとインレイヒント（D-40）のための、文ごとのテーブル参照と、名前の並びの一覧。
+ * 名前でないもの（キーワード、関数の呼び出し、別名の定義、:名前 などのバインド変数、SQL Server の @変数）は除く
+ */
+export function sqlOutline(dialect: Dialect, text: string): SqlOutline {
+  const { tokens } = scan(dialect, text);
+  const keywords = keywordSet(dialect);
+  const outline: SqlOutline = { statements: [], names: [] };
+  for (const span of statementSpans(dialect, text, tokens)) {
+    const range = toRange(tokens)(span)[0];
+    if (!range) continue;
+    const inStatement = tokens.slice(span.first, span.last);
+    const refs = readReferences(inStatement);
+    const statement = outline.statements.length;
+    outline.statements.push({ ...range, tables: refs.map(publicRef) });
+    const tableAt = new Map<number, number>();
+    const aliases = new Set<number>();
+    for (const ref of refs) {
+      if (ref.nameTokens) tableAt.set(ref.nameTokens[0], ref.nameTokens[1]);
+      if (ref.aliasToken !== null) aliases.add(ref.aliasToken);
+    }
+    const ctes = cteNames(inStatement);
+
+    for (let i = 0; i < inStatement.length; ) {
+      const t = inStatement[i];
+      if (!isIdent(t) || aliases.has(i)) {
+        i += 1;
+        continue;
+      }
+      // 名前.名前.… の並び（. の前後に空白のないもの）
+      const parts: SqlName[] = [nameOf(t)];
+      let j = i + 1;
+      for (;;) {
+        const dot = inStatement[j];
+        const next = inStatement[j + 1];
+        const prev = inStatement[j - 1];
+        if (
+          !isPunct(dot, ".") ||
+          !isIdent(next) ||
+          dot?.start !== prev?.end ||
+          next.start !== dot?.end
+        ) {
+          break;
+        }
+        parts.push(nameOf(next));
+        j += 2;
+      }
+      const before = inStatement[i - 1];
+      const after = inStatement[j];
+      const table = tableAt.get(i) === j - 1;
+      const single =
+        parts.length === 1 ? (parts[0]?.name.toUpperCase() ?? null) : null;
+      const skip =
+        // 関数の呼び出し
+        isPunct(after, "(") ||
+        // 列の別名の定義（AS の後と、名前の直後の名前）と、WITH の名前
+        isWord(before, "AS") ||
+        isPunct(before, ")") ||
+        (isIdent(before) &&
+          !(
+            before.kind === "word" && keywords.has(before.text.toUpperCase())
+          )) ||
+        (single !== null && !table && ctes.has(single)) ||
+        // :名前（レポートの入力欄）、Oracle の :x、SQL Server の @x
+        (before?.kind === "other" &&
+          before.text === ":" &&
+          before.end === t.start) ||
+        t.text.startsWith("@") ||
+        (single !== null && t.kind === "word" && keywords.has(single));
+      if (!skip) {
+        const aliasToken = isWord(after, "AS") ? inStatement[j + 1] : after;
+        const alias =
+          isIdent(aliasToken) &&
+          !(
+            aliasToken.kind === "word" &&
+            (NOT_ALIAS.has(aliasToken.text.toUpperCase()) ||
+              keywords.has(aliasToken.text.toUpperCase()))
+          )
+            ? identName(aliasToken)
+            : null;
+        outline.names.push({ parts, table, statement, alias });
+      }
+      i = j;
+    }
+  }
+  return outline;
+}
+
+function nameOf(token: ScanToken): SqlName {
+  return { name: identName(token), start: token.start, end: token.end };
+}
+
+/** 名前として扱わない語（キーワードと予約語） */
+function keywordSet(dialect: Dialect): Set<string> {
+  const words = new Set(RESERVED);
+  for (const keyword of sqlKeywords(dialect)) {
+    for (const word of keyword.split(/[^A-Z_]+/)) if (word) words.add(word);
+  }
+  for (const word of EXTRA_KEYWORDS) words.add(word);
+  return words;
+}
+
+const EXTRA_KEYWORDS = [
+  "TOP",
+  "BY",
+  "NULLS",
+  "FIRST",
+  "LAST",
+  "ROWS",
+  "ROW",
+  "ONLY",
+  "NEXT",
+  "OVER",
+  "PARTITION",
+  "PERCENT",
+  "TIES",
+  "NOLOCK",
+  "APPLY",
+  "PIVOT",
+  "UNPIVOT",
+  "INTERSECT",
+  "EXCEPT",
+  "ESCAPE",
+  "ALL",
+  "SOME",
+  "PRIOR",
+  "CONNECT",
+  "START",
+  "GO",
+];
 
 /** 補完で入れる名前。予約語や記号を含む名前、Oracle の小文字を含む名前は引用符で囲む */
 export function completionIdentifier(dialect: Dialect, name: string): string {
