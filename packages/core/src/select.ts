@@ -1,6 +1,11 @@
 // 段階1（単一テーブル／ビュー）の SELECT 文を組み立てる
 
-import { fromBaseSql, optionsStatement, reportStatement } from "./baseSql";
+import {
+  fromBaseSql,
+  optionsStatement,
+  reportStatement,
+  tokenize,
+} from "./baseSql";
 import { type Dialect, type DialectName, getDialect } from "./dialect";
 import { QueryBuildError } from "./errors";
 import type { ColumnFilterValue, SortEntry } from "./filter";
@@ -40,6 +45,11 @@ export type SelectInput = ConditionOptions & {
   sort?: readonly SortEntry[];
   /** 取得する最大行数。上限に達したかを判定するなら「上限 + 1」を渡す */
   limit?: number;
+  /**
+   * 利用者が書いた条件式（差分カメラの表ごとの条件、D-47）。括弧で包み、ほかの条件と AND でつなぐ。
+   * ; とバインド変数は使えない（checkCondition）
+   */
+  where?: string;
 };
 
 // finish / fromSource / checkLimit は候補値の SQL（filterOptions.ts）でも使う
@@ -85,6 +95,10 @@ export function buildSelect(input: SelectInput): BuiltQuery {
       : sql`SELECT${list}`,
     sql`FROM ${source.from}`,
   ];
+  if (input.where !== undefined) {
+    // 行の終わりの -- コメントで閉じ括弧が消えないよう、条件式は別の行に置く
+    conditions.push(raw(`(\n${checkCondition(dialect, input.where)}\n)`));
+  }
   if (conditions.length > 0) {
     lines.push(sql`WHERE ${join(conditions, "\n  AND ")}`);
   }
@@ -104,6 +118,29 @@ export function buildSelect(input: SelectInput): BuiltQuery {
     lines.push(sql`FETCH FIRST ${limit} ROWS ONLY`);
   }
   return finish(join(lines, "\n"), dialect);
+}
+
+/**
+ * 利用者が書いた条件式を確かめ、前後の空白を除いて返す。閉じていない文字列・括弧、; 、バインド変数はエラー。
+ * 書き込みの語などは、ドライバが実行の直前に確かめる（D-24）
+ */
+export function checkCondition(dialect: Dialect, text: string): string {
+  const trimmed = text.trim();
+  if (trimmed === "") throw new QueryBuildError("条件が空です");
+  const bad = tokenize(dialect, trimmed).find(
+    (t) =>
+      (t.kind === "punct" && t.text === ";") ||
+      t.kind === "named" ||
+      t.kind === "param",
+  );
+  if (bad) {
+    throw new QueryBuildError(
+      bad.text === ";"
+        ? "条件に ; は書けません"
+        : `条件にバインド変数（${bad.text}）は使えません。値はそのまま書いてください`,
+    );
+  }
+  return trimmed;
 }
 
 /**

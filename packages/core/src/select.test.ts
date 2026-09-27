@@ -151,3 +151,36 @@ describe("buildSelect", () => {
     ).toThrow("並べ替えの列");
   });
 });
+
+describe("buildSelect の where（差分カメラの表ごとの条件、D-47）", () => {
+  const input = {
+    dialect: "mssql" as const,
+    source: { kind: "table" as const, table: { schema: "dbo", name: "受注" } },
+    columns: [],
+  };
+
+  test("条件式を別の行に置いて括弧で包む（行の終わりの -- コメントで閉じ括弧が消えない）", () => {
+    expect(
+      buildSelect({
+        ...input,
+        where: "  受注日 >= '20260901' -- 今月  ",
+        limit: 101,
+      }).literalSql,
+    ).toBe(
+      "SELECT TOP (101) *\nFROM [dbo].[受注]\nWHERE (\n受注日 >= '20260901' -- 今月\n)",
+    );
+  });
+
+  test("空・; ・バインド変数・閉じていない文字列はエラー", () => {
+    expect(() => buildSelect({ ...input, where: " " })).toThrow("条件が空です");
+    expect(() =>
+      buildSelect({ ...input, where: "a = 1; DELETE FROM x" }),
+    ).toThrow("条件に ; は書けません");
+    expect(() => buildSelect({ ...input, where: "a = :x" })).toThrow(
+      "バインド変数（:x）",
+    );
+    expect(() => buildSelect({ ...input, where: "a = 'x" })).toThrow(
+      "文字列が閉じていません",
+    );
+  });
+});

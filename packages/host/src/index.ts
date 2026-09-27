@@ -4,6 +4,36 @@ export {
   type DataViewSettings,
 } from "./dataView";
 export { DemoSession, type DemoSessionOptions } from "./demo/demoSession";
+export {
+  type CameraTable,
+  compareShots,
+  comparisonText,
+  DEFAULT_SHOT_MAX_ROWS,
+  DIFF_VIEW_MAX_ROWS,
+  type DiffCamera,
+  diffView,
+  type Shot,
+  shoot,
+  type TableComparison,
+  type TableShot,
+  tableTitle,
+} from "./diffCamera";
+export {
+  clock,
+  DiffCameraController,
+  type DiffCameraDeps,
+} from "./diffCameraController";
+export type {
+  CameraItem,
+  DiffColumn,
+  DiffRow,
+  DiffTableView,
+  DiffView,
+  FromCameraView,
+  FromDiffView,
+  ToCameraView,
+  ToDiffView,
+} from "./diffCameraProtocol";
 export type {
   FromWebview,
   HeaderMode,
