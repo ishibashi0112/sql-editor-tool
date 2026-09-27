@@ -1,8 +1,8 @@
 // .sql の編集の支援（D-39、D-40）：テーブル名・列名・キーワードの入力補完、論理名のホバーとインレイヒント、
 // 補完・実行に使う接続を選ぶステータスバー。
-// 先頭にレポートの設定のコメントがある .sql は、そのコメントの接続を使う（D-29）。
-// それ以外の .sql は、ファイルごとに選んだ接続を VS Code の中に覚えておく（ファイルには書かない）。
-// 選んでいなければ、つないでいる接続が 1 つならそれを使う。未接続なら、補完のときに接続する。
+// 接続は、ファイルごとに選んだものを VS Code の中に覚えておく（ファイルには書かない。D-44）。
+// 選んでいなければ、先頭の設定のコメントの接続（0.8 までのレポート）、つないでいる接続が 1 つならそれを使う。
+// 未接続なら、補完のときに接続する。
 // ほかの拡張機能が .sql を別の言語（ID が sql でないもの）として扱うことがあるので、拡張子でも判定する
 
 import {
@@ -13,7 +13,6 @@ import {
   hasReportHeader,
   parseReportConfig,
   shortLogicalName,
-  writeReportConfig,
 } from "@sql-editor-tool/core";
 import {
   type CompletionEntry,
@@ -25,11 +24,12 @@ import {
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
+import { STATE_KEYS } from "./fileSettings";
 import type { SessionManager } from "./sessions";
 import { describe } from "./tree";
 
 /** 先頭に設定のコメントがない .sql の、ファイル（URI）→ 接続名。空文字は「使わない」 */
-const FILE_CONNECTIONS_KEY = "sqlEditorTool.sqlConnections";
+const FILE_CONNECTIONS_KEY = STATE_KEYS.fileConnections;
 
 /**
  * 補完する文書。言語 ID が sql のもの（VS Code の標準）と、拡張子が .sql のもの
@@ -89,8 +89,6 @@ export type SqlConnection = {
   name: string | null;
   profile: ConnectionProfile | undefined;
   auto: boolean;
-  /** 先頭に設定のコメントがある（接続はコメントに書く） */
-  report: boolean;
 };
 
 const KINDS: Record<CompletionEntry["kind"], vscode.CompletionItemKind> = {
@@ -239,28 +237,27 @@ export class SqlEditing implements vscode.Disposable {
     for (const d of this.disposables.splice(0)) d.dispose();
   }
 
-  /** この .sql の補完に使う接続 */
+  /**
+   * この .sql の補完・実行に使う接続。選んだもの（VS Code の中に覚える）→ 先頭の設定のコメントの接続
+   * （0.8 までのレポートの .sql。読むだけ）→ 自動（つないでいる接続が 1 つならそれ、接続が 1 つしかなければそれ）
+   */
   connectionFor(document: vscode.TextDocument): SqlConnection {
     const profiles = this.store.list();
     const byName = (name: string) => profiles.find((p) => p.name === name);
-    const text = document.getText();
-    if (hasReportHeader(text)) {
-      const name = parseReportConfig(text).config.connection ?? null;
-      if (name) {
-        return { name, profile: byName(name), auto: false, report: true };
-      }
-    }
-    const report = hasReportHeader(text);
     const map = this.fileConnections();
     const key = document.uri.toString();
-    if (!report && Object.hasOwn(map, key)) {
+    if (Object.hasOwn(map, key)) {
       const name = map[key] ?? "";
       // 空文字は「使わない」を選んだもの
       return name
-        ? { name, profile: byName(name), auto: false, report }
-        : { name: null, profile: undefined, auto: false, report };
+        ? { name, profile: byName(name), auto: false }
+        : { name: null, profile: undefined, auto: false };
     }
-    // 選んでいなければ、つないでいる接続が 1 つならそれ。接続が 1 つしかなければそれ
+    const text = document.getText();
+    if (hasReportHeader(text)) {
+      const name = parseReportConfig(text).config.connection;
+      if (name) return { name, profile: byName(name), auto: false };
+    }
     const open = profiles.filter((p) => this.sessions.isOpen(p.id));
     const auto =
       open.length === 1
@@ -272,7 +269,6 @@ export class SqlEditing implements vscode.Disposable {
       name: auto?.name ?? null,
       profile: auto,
       auto: auto !== undefined,
-      report,
     };
   }
 
@@ -476,7 +472,6 @@ export class SqlEditing implements vscode.Disposable {
       return false;
     }
     const resolved = this.connectionFor(document);
-    const { report } = resolved;
     const current = resolved.auto ? null : resolved.name;
     const none = {
       label: "（使わない）",
@@ -490,50 +485,20 @@ export class SqlEditing implements vscode.Disposable {
           description: `${describe(profile)}${profile.name === current ? " · 選択中" : ""}`,
           profile,
         })),
-        ...(report ? [] : [none]),
+        none,
       ],
-      {
-        title: report
-          ? "このレポートの接続（先頭のコメントに書きます）"
-          : "この .sql の補完・実行に使う接続",
-      },
+      // ファイルには書かず、VS Code の中に覚える（BI ツールに貼る SQL を汚さないため。D-44）
+      { title: "この .sql の補完・実行に使う接続" },
     );
     if (!picked) return false;
-    if (report) {
-      if (picked.profile) await writeConnection(document, picked.profile.name);
-    } else {
-      const map = { ...this.fileConnections() };
-      const key = document.uri.toString();
-      map[key] = picked.profile?.name ?? "";
-      await this.state.update(FILE_CONNECTIONS_KEY, map);
-    }
+    const map = { ...this.fileConnections() };
+    map[document.uri.toString()] = picked.profile?.name ?? "";
+    await this.state.update(FILE_CONNECTIONS_KEY, map);
     this.updateStatus();
     this.hintsChanged.fire();
     this.connectionChanged.fire(document);
     return true;
   }
-}
-
-/** レポートの先頭のコメントに接続名を書く。保存していない編集がなければ、ファイルも保存する（レポートの画面と同じ） */
-async function writeConnection(
-  document: vscode.TextDocument,
-  name: string,
-): Promise<void> {
-  const text = document.getText();
-  const next = writeReportConfig(text, {
-    ...parseReportConfig(text).config,
-    connection: name,
-  });
-  if (next === text) return;
-  const wasDirty = document.isDirty;
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(
-    document.uri,
-    new vscode.Range(document.positionAt(0), document.positionAt(text.length)),
-    next,
-  );
-  await vscode.workspace.applyEdit(edit);
-  if (!wasDirty) await document.save();
 }
 
 /** テーブル名・列名を出す位置か（接続がないと何も出せない位置） */

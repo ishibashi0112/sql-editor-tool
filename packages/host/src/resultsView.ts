@@ -143,7 +143,8 @@ export class ResultsController {
         this.close(message.tabId);
         return;
       case "setHeaderMode":
-        // 列見出しの表示は拡張が設定に書く
+      case "toggleMaximize":
+        // 列見出しの表示の設定と、パネルの大きさは拡張が扱う
         return;
       case "tab": {
         const tab = this.tabs.find((t) => t.info.id === message.tabId);

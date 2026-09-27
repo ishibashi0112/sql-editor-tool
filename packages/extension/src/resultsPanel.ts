@@ -5,12 +5,9 @@
 import { randomBytes } from "node:crypto";
 import {
   getDialect,
-  hasReportHeader,
-  parseReportConfig,
   type ReportConfig,
   splitStatements,
   statementAt,
-  writeReportConfig,
 } from "@sql-editor-tool/core";
 import {
   describeResultColumns,
@@ -22,6 +19,7 @@ import {
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
+import { fileConfig, STATE_KEYS, saveParamSettings } from "./fileSettings";
 import type { SessionManager } from "./sessions";
 import {
   dialectOf,
@@ -33,8 +31,6 @@ import { connectPrefs } from "./viewPrefs";
 
 export const RESULTS_VIEW_ID = "sqlEditorTool.results";
 
-/** フォームの値（レポートの画面と同じところに、ファイルごとに覚える） */
-const VALUES_KEY = "sqlEditorTool.reportValues";
 const CODE_LENS_SETTING = "run.codeLens";
 
 export type ResultsPanelDeps = {
@@ -148,6 +144,12 @@ export class ResultsPanel
     view.webview.html = html(view.webview, root);
     this.viewDisposables.push(
       view.webview.onDidReceiveMessage((message: FromResults) => {
+        if (message.type === "toggleMaximize") {
+          void vscode.commands.executeCommand(
+            "workbench.action.toggleMaximizedPanel",
+          );
+          return;
+        }
         this.controller.handle(message).catch((error: unknown) => {
           void vscode.window.showErrorMessage(
             error instanceof Error ? error.message : String(error),
@@ -193,7 +195,7 @@ export class ResultsPanel
       source,
       label: fileName(document.uri),
       statements,
-      config: configOf(document.getText()),
+      config: this.configOf(document),
       connection: connectionOf(profile),
     });
     this.flashRanges(editor, statements);
@@ -276,7 +278,7 @@ export class ResultsPanel
     else this.profiles.delete(source);
     this.controller.update(
       source,
-      configOf(document.getText()),
+      this.configOf(document),
       profile ? connectionOf(profile) : null,
     );
   }
@@ -289,34 +291,24 @@ export class ResultsPanel
     await this.deps.editing.choose(document);
   }
 
-  /** 入力欄の設定を .sql の先頭のコメントに書く。接続が決まっていれば、それも書く（ファイルの接続が変わらないように） */
+  /** .sql の入力欄の設定（VS Code に覚えたものと、先頭の設定のコメント） */
+  private configOf(document: vscode.TextDocument): ReportConfig | null {
+    return fileConfig(
+      this.deps.state,
+      document.uri.toString(),
+      document.getText(),
+    );
+  }
+
+  /** 入力欄の設定を VS Code の中に覚える（.sql は書き換えない。D-44） */
   private async saveConfig(
     source: string,
     config: ReportConfig,
   ): Promise<void> {
+    await saveParamSettings(this.deps.state, source, config.params ?? {});
     const document = await vscode.workspace.openTextDocument(
       vscode.Uri.parse(source),
     );
-    const current = document.getText();
-    const profile = this.profileOf(source);
-    const next = writeReportConfig(current, {
-      ...(profile && !config.connection ? { connection: profile.name } : {}),
-      ...config,
-    });
-    if (next !== current) {
-      const wasDirty = document.isDirty;
-      const edit = new vscode.WorkspaceEdit();
-      edit.replace(
-        document.uri,
-        new vscode.Range(
-          document.positionAt(0),
-          document.positionAt(current.length),
-        ),
-        next,
-      );
-      await vscode.workspace.applyEdit(edit);
-      if (!wasDirty) await document.save();
-    }
     this.refresh(document);
   }
 
@@ -345,7 +337,7 @@ export class ResultsPanel
 
   private allValues(): Record<string, ReportFormValues> {
     return this.deps.state.get<Record<string, ReportFormValues>>(
-      VALUES_KEY,
+      STATE_KEYS.formValues,
       {},
     );
   }
@@ -353,7 +345,7 @@ export class ResultsPanel
   private saveValues(source: string, values: ReportFormValues): void {
     clearTimeout(this.saveValuesTimer);
     this.saveValuesTimer = setTimeout(() => {
-      void this.deps.state.update(VALUES_KEY, {
+      void this.deps.state.update(STATE_KEYS.formValues, {
         ...this.allValues(),
         [source]: values,
       });
@@ -389,10 +381,6 @@ function targetStatements(
   const at = offset ?? document.offsetAt(selection.active);
   const found = statementAt(splitStatements(getDialect(dialect), text), at);
   return found ? [toStatement(text, 0, found)] : [];
-}
-
-function configOf(text: string): ReportConfig | null {
-  return hasReportHeader(text) ? parseReportConfig(text).config : null;
 }
 
 function connectionOf(profile: ConnectionProfile): ReportConnection {

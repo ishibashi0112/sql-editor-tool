@@ -149,7 +149,7 @@ button:disabled {
   padding: 16px;
 }
 
-/* ── レポート（§16、D-31）───────────────────────── */
+/* ── 入力欄（:名前・@名前、D-31・D-43）───────────────── */
 
 .toolbar .connection {
   max-width: 320px;
@@ -468,7 +468,7 @@ body.vscode-high-contrast .form input[type="date"] {
   color: var(--vscode-button-foreground, #ffffff);
 }
 
-/* 「SQL の結果」のパネル（D-41）。上にタブ、その下にタブの中身（レポートの画面の results の形） */
+/* 「SQL の結果」のパネル（D-41）。上にタブ、その下にタブの中身（入力欄と結果） */
 .results {
   display: flex;
   flex-direction: column;
@@ -552,6 +552,24 @@ body.vscode-high-contrast .form input[type="date"] {
   to {
     transform: rotate(360deg);
   }
+}
+
+.tabbar-spacer {
+  flex: 1;
+}
+
+.tabbar-button {
+  flex: none;
+  align-self: center;
+  margin: 0 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--vscode-foreground, #1f2328);
+}
+
+.tabbar-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, #e5e5e5);
 }
 
 .tabpanel {

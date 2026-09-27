@@ -23,4 +23,6 @@ export type FromResults =
   | { type: "tab"; tabId: string; message: FromReport }
   | { type: "selectTab"; tabId: string }
   | { type: "closeTab"; tabId: string }
+  /** 下のパネルを大きくする・戻す（VS Code の「パネルの最大化」） */
+  | { type: "toggleMaximize" }
   | SetHeaderModeMessage;

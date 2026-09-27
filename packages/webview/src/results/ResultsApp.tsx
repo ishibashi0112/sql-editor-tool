@@ -101,8 +101,9 @@ export function ResultsApp({ api }: { api: ResultsApi }) {
         <p className="status">
           カーソルのある文（; か、; なしで続けて書いた次の SELECT までを 1
           つの文とします）を実行します。範囲を選んでいれば、その部分を実行します。
-          :名前 を書くと入力欄になります。実行できるのは SELECT / WITH
-          だけです（読み取り専用）。
+          :名前 や @名前（SQL Server）を書くと入力欄になり、値を入れて Enter
+          で実行します（値は覚えるので、次からはすぐ実行します）。実行できるのは
+          SELECT / WITH だけです（読み取り専用）。
         </p>
       </div>
     );
@@ -151,6 +152,15 @@ export function ResultsApp({ api }: { api: ResultsApi }) {
             </button>
           </div>
         ))}
+        <span className="tabbar-spacer" />
+        <button
+          type="button"
+          className="tabbar-button"
+          title="結果を大きく表示する（もう一度押すと戻す）"
+          onClick={() => api.post({ type: "toggleMaximize" })}
+        >
+          ⤢ 大きく
+        </button>
       </div>
       {tabs.map((tab) => (
         <div
@@ -159,7 +169,7 @@ export function ResultsApp({ api }: { api: ResultsApi }) {
           className="tabpanel"
           hidden={tab.id !== active}
         >
-          <ReportApp api={apiFor(tab.id)} variant="results" />
+          <ReportApp api={apiFor(tab.id)} />
         </div>
       ))}
     </div>
