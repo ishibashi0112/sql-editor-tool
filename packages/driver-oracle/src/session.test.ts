@@ -6,6 +6,7 @@ import {
 import type oracledb from "oracledb";
 import { describe, expect, test } from "vitest";
 import {
+  connectDescriptor,
   type OracleConnection,
   type OraclePool,
   OracleSession,
@@ -248,5 +249,31 @@ describe("OracleSession のメタデータ", () => {
       ],
       primaryKey: ["ORDER_NO"],
     });
+  });
+});
+
+describe("connectDescriptor", () => {
+  test("完全な記述子にする（Thick モードで EZCONNECT が使えない Oracle Client でも通る）", () => {
+    expect(
+      connectDescriptor({
+        host: " db.example ",
+        port: 1521,
+        serviceName: "APP_SVC",
+      }),
+    ).toBe(
+      "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db.example)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=APP_SVC)))",
+    );
+  });
+
+  test("記述子の区切りの文字や空の値は使えない", () => {
+    expect(() =>
+      connectDescriptor({ host: "a(b", port: 1521, serviceName: "S" }),
+    ).toThrow("ホスト名");
+    expect(() =>
+      connectDescriptor({ host: "h", port: 1521, serviceName: "" }),
+    ).toThrow("サービス名");
+    expect(() =>
+      connectDescriptor({ host: "h", port: 0, serviceName: "S" }),
+    ).toThrow("ポート");
   });
 });

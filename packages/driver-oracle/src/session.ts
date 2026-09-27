@@ -84,6 +84,33 @@ export function initOracleClient(mode: OracleClientMode): void {
   initializedMode = mode.mode;
 }
 
+/**
+ * 接続先の記述子。Easy Connect（host:port/service）は、Thick モードで Oracle Client の sqlnet.ora の
+ * NAMES.DIRECTORY_PATH に EZCONNECT がないと ORA-12154 になる（会社 PC で起きた。O-02）。
+ * 完全な記述子なら、名前の解決を使わないので Thin・Thick のどちらでも通る
+ */
+export function connectDescriptor(
+  config: Pick<OracleConfig, "host" | "port" | "serviceName">,
+): string {
+  const host = config.host.trim();
+  const serviceName = config.serviceName.trim();
+  // 記述子の区切りの文字が入ると、別の指定として読まれてしまう
+  for (const [label, value] of [
+    ["ホスト名", host],
+    ["サービス名", serviceName],
+  ] as const) {
+    if (!value || /[()=\s]/.test(value)) {
+      throw new Error(
+        `Oracle の${label}「${value}」に使えない文字（括弧・=・空白）があるか、空です`,
+      );
+    }
+  }
+  if (!Number.isInteger(config.port) || config.port <= 0) {
+    throw new Error(`Oracle のポート「${config.port}」が正しくありません`);
+  }
+  return `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${host})(PORT=${config.port}))(CONNECT_DATA=(SERVICE_NAME=${serviceName})))`;
+}
+
 /** 最初の数行はすぐ画面に出したいので少なく取り、そのあとはまとめて取る */
 const FIRST_FETCH_ROWS = 100;
 const FETCH_ROWS = 1000;
@@ -101,7 +128,7 @@ export class OracleSession implements DbSession {
       // パスワードは node-oracledb に渡すだけで、表示もログ出力もしない（§8）
       user: config.user,
       password: config.password,
-      connectString: `${config.host}:${config.port}/${config.serviceName}`,
+      connectString: connectDescriptor(config),
       poolMin: 0,
       poolMax: 4,
       poolIncrement: 1,
