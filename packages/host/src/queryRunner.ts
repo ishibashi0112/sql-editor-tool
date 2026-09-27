@@ -26,6 +26,8 @@ export type RunInput = {
   /** SQL を組み立てる。ここで投げた例外（入力の誤りなど）も、実行の失敗として画面に出す */
   build(): { sql: string; params: QueryRequest["params"] };
   intent: QueryRequest["intent"];
+  /** 失敗したときの画面の文（省略すると例外のメッセージ。.sql の実行では、SQL の行をファイルの行に直す） */
+  formatError?(error: unknown): string;
   /** 結果の列が届いたとき。行を画面の列の並びに直す関数を返す（直さないなら null） */
   onColumns(
     columns: ResultColumn[],
@@ -94,7 +96,9 @@ export class QueryRunner {
         this.post({
           type: "queryFailed",
           queryId,
-          message: errorMessage(cause),
+          message: input.formatError
+            ? input.formatError(cause)
+            : errorMessage(cause),
           cancelled: isAbortError(cause),
         });
         return;

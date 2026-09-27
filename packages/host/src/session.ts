@@ -80,6 +80,34 @@ export interface DbSession {
   close(): Promise<void>;
 }
 
+/** DB のエラーの 1 件。line は実行した SQL の中の行（1 から。分からなければなし） */
+export type SqlErrorDetail = { message: string; line?: number };
+
+/**
+ * 問い合わせの DB のエラー（ドライバが投げる）。SQL Server は 1 回の実行で複数のエラーを返すことがある。
+ * 画面では、行をファイルの行に直して出す（O-18）
+ */
+export class DbQueryError extends Error {
+  constructor(
+    readonly details: readonly SqlErrorDetail[],
+    /** メッセージが 1 つもないとき */
+    fallback: string,
+  ) {
+    const messages = details.map((d) => d.message).filter((m) => m !== "");
+    super(messages.length > 0 ? messages.join(" ／ ") : fallback);
+    this.name = "DbQueryError";
+  }
+}
+
+/** SQL の中の位置（0 から）の行（1 から） */
+export function lineAt(sql: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset && i < sql.length; i += 1) {
+    if (sql.charCodeAt(i) === 10) line += 1;
+  }
+  return line;
+}
+
 export function abortError(): Error {
   const error = new Error("中断しました");
   error.name = "AbortError";

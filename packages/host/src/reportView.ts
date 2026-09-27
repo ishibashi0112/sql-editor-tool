@@ -24,7 +24,7 @@ import {
   withGuessedTypes,
 } from "@sql-editor-tool/core";
 import type { SqlPreview, ViewColumn } from "./protocol";
-import { QueryRunner } from "./queryRunner";
+import { type QueryMessage, QueryRunner } from "./queryRunner";
 import type {
   FromReport,
   ReportFormValues,
@@ -35,6 +35,7 @@ import type {
 } from "./reportProtocol";
 import {
   type CellValue,
+  DbQueryError,
   type DbSession,
   isAbortError,
   type ResultColumn,
@@ -73,6 +74,10 @@ export type ReportViewDeps = {
   ): Promise<LogicalName[]>;
   /** 今の時刻（相対の日付の既定値を計算する。テストで差し替える） */
   now?(): Date;
+  /** 実行の経過を記録する（拡張の「出力」の SQL Editor Tool。SQL の本文・入力した値・パスワードは渡さない） */
+  log?(message: string): void;
+  /** 実行する SQL の 1 行目が、ファイルの何行目か（0 から）。DB のエラーの行をファイルの行に直す */
+  sqlLine?(): number;
 };
 
 export class ReportController {
@@ -95,8 +100,16 @@ export class ReportController {
   private resultNames: string[] = [];
   private filters: Record<string, ColumnFilterValue> = {};
   private sort: SortEntry[] = [];
-  private readonly runner = new QueryRunner((message) => this.post(message));
+  private readonly runner = new QueryRunner((message) => {
+    this.logQuery(message);
+    this.post(message);
+  });
   private disposed = false;
+  /** 一度でも実行したか（画面を作り直したときに、前の結果が消えたと伝える） */
+  private ran = false;
+  /** 接続している途中か。実行し直したり中止したりしたら attempt を進め、前の接続の後は実行しない */
+  private connecting = false;
+  private attempt = 0;
 
   constructor(private readonly deps: ReportViewDeps) {
     this.text = deps.text;
@@ -109,6 +122,8 @@ export class ReportController {
     switch (message.type) {
       case "ready":
         this.postInit();
+        // 画面を作り直した（行とエラーは画面と一緒に消えている）
+        if (this.ran) this.post({ type: "queryNotice", notice: "lost" });
         return;
       // 列見出しの表示は拡張（パネル）が設定に書く
       case "setHeaderMode":
@@ -126,6 +141,18 @@ export class ReportController {
       case "execute":
         return this.execute(message.mode);
       case "cancel":
+        if (this.connecting) {
+          // 接続が済んでも実行しない
+          this.attempt += 1;
+          this.connecting = false;
+          this.post({
+            type: "queryFailed",
+            queryId: 0,
+            message: "中止しました",
+            cancelled: true,
+          });
+          return;
+        }
         this.runner.cancel();
         return;
       case "copySql":
@@ -457,18 +484,29 @@ export class ReportController {
       this.deps.chooseConnection();
       return;
     }
+    this.ran = true;
+    const attempt = ++this.attempt;
+    this.connecting = true;
+    this.post({ type: "queryNotice", notice: "connecting" });
+    const started = Date.now();
     let session: DbSession;
     try {
       session = await this.deps.openSession();
     } catch (error) {
-      this.post({
-        type: "queryFailed",
-        queryId: 0,
-        message: `接続できませんでした：${error instanceof Error ? error.message : String(error)}`,
-        cancelled: false,
-      });
+      if (attempt !== this.attempt) return;
+      this.connecting = false;
+      const message = `接続できませんでした：${error instanceof Error ? error.message : String(error)}`;
+      this.log(`${message}（${Date.now() - started} ms）`);
+      this.post({ type: "queryFailed", queryId: 0, message, cancelled: false });
       return;
     }
+    // 接続している間に、中止した・実行し直した
+    if (attempt !== this.attempt) return;
+    this.connecting = false;
+    const waited = Date.now() - started;
+    // 開いている接続を使ったとき（すぐ返る）は書かない
+    if (waited >= 100)
+      this.log(`接続しました（${connection.name}、${waited} ms）`);
     const filtered = mode === "filtered";
     const { maxRows } = this.deps.settings;
     await this.runner.run({
@@ -485,6 +523,7 @@ export class ReportController {
         sort: filtered ? this.sort : [],
         limit: maxRows + 1,
       },
+      formatError: (error) => this.errorText(error, filtered),
       onColumns: (columns, queryId) => {
         this.resultNames = columns.map((column) => column.name);
         this.columns = toViewColumns(columns);
@@ -493,6 +532,51 @@ export class ReportController {
         return null;
       },
     });
+  }
+
+  /**
+   * DB のエラーの画面の文。SQL の行が分かれば「153 行目：…」にする。そのまま実行したときだけ
+   * （画面の絞り込みで取り直すときは SQL を包むので、行がずれる）
+   */
+  private errorText(error: unknown, filtered: boolean): string {
+    if (!(error instanceof DbQueryError)) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    const base = filtered ? undefined : this.deps.sqlLine?.();
+    const withLine = error.details.map((d) => {
+      if (d.line === undefined || filtered) return d.message;
+      return base === undefined
+        ? `SQL の ${d.line} 行目：${d.message}`
+        : `${base + d.line} 行目：${d.message}`;
+    });
+    // 画面では 1 件ずつ行を分けて出す
+    const text = withLine.filter((m) => m !== "").join("\n");
+    return text === "" ? error.message : text;
+  }
+
+  private log(message: string): void {
+    this.deps.log?.(`${this.deps.title}：${message}`);
+  }
+
+  /** 実行の始まりと終わりを記録する（行の中身は書かない） */
+  private logQuery(message: QueryMessage): void {
+    switch (message.type) {
+      case "queryStarted":
+        this.log(`実行を始めました（${this.connection?.name ?? "接続なし"}）`);
+        return;
+      case "queryDone":
+        this.log(
+          `${message.rowCount} 行（${(message.elapsedMs / 1000).toFixed(1)} 秒${message.truncated ? "、上限で打ち切り" : ""}）`,
+        );
+        return;
+      case "queryFailed":
+        this.log(
+          message.cancelled
+            ? "中止しました"
+            : `失敗しました：${message.message}`,
+        );
+        return;
+    }
   }
 
   /** 結果の列に論理名を付けて、列見出しを出し直す（行の取得は待たせない） */

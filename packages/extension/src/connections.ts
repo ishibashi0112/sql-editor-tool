@@ -76,6 +76,11 @@ export class ConnectionStore {
     return this.context.secrets.get(passwordKey(id));
   }
 
+  /** パスワードを保存する（設定を読み込んだ接続などで、初めてつなぐときに聞いたもの） */
+  async setPassword(id: string, password: string): Promise<void> {
+    await this.context.secrets.store(passwordKey(id), password);
+  }
+
   dispose(): void {
     this.changed.dispose();
   }

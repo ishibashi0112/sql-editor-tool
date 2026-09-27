@@ -15,9 +15,9 @@ export type TokenKind =
   | "word"
   | "quoted"
   | "string"
-  /** :名前（レポートのパラメータ。D-28）。どちらの方言でも同じ */
+  /** :名前（入力欄のパラメータ。D-28）。どちらの方言でも同じ。SQL Server では @名前 も（D-43） */
   | "named"
-  /** それ以外のバインド変数（SQL Server の @x、Oracle の :1）。使えない */
+  /** それ以外のバインド変数（Oracle の :1 など）。使えない */
   | "param"
   | "punct"
   | "other";
@@ -94,8 +94,14 @@ export function tokenize(dialect: Dialect, text: string): Token[] {
       // @@ROWCOUNT などのシステム関数は変数ではない
       const isSystem = next === "@";
       let j = i + (isSystem ? 2 : 1);
-      while (j < text.length && WORD_PART.test(text.charAt(j))) j += 1;
-      push(isSystem || j === i + 1 ? "other" : "param", i, j);
+      if (!isSystem && NAME_START.test(next)) {
+        // @名前 は :名前 と同じ入力欄（BI ツールに登録する SQL の書き方のまま試せるように。D-43）
+        while (j < text.length && NAME_PART.test(text.charAt(j))) j += 1;
+        push("named", i, j);
+      } else {
+        while (j < text.length && WORD_PART.test(text.charAt(j))) j += 1;
+        push(isSystem || j === i + 1 ? "other" : "param", i, j);
+      }
       i = j;
     } else if (c === ":" && next === ":") {
       // PostgreSQL の型変換（col::text）や SQL Server の geometry::Point など。パラメータではない
@@ -244,7 +250,7 @@ function prepare(
   if (param) {
     throw new QueryBuildError(
       options.resolve
-        ? `${what} のバインド変数（${param.text}）は使えません。入力欄にする値は「:名前」の形で書いてください`
+        ? `${what} のバインド変数（${param.text}）は使えません。入力欄にする値は「:名前」（SQL Server は「@名前」も）の形で書いてください`
         : `${what} にバインド変数（${param.text}）は使えません。値は列見出しのフィルタで指定してください`,
     );
   }

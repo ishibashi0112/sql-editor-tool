@@ -16,6 +16,8 @@ import {
 } from "./sqlEditing";
 
 type DecoratedStyle = Exclude<LogicalNameStyle, "inlayHint">;
+/** 装飾 1 つで出す見た目（lineEndTag は札ごとに装飾を分ける） */
+type SingleStyle = Exclude<DecoratedStyle, "lineEndTag">;
 
 /** 見えている範囲の前後に、少し余分に取る行数（スクロールしたときにすぐ出るように） */
 const MARGIN_LINES = 20;
@@ -26,6 +28,9 @@ const color = (id: string) => new vscode.ThemeColor(`sqlEditorTool.${id}`);
 const TAG_FONT = 0.8;
 const MUTED_FONT = 0.85;
 
+/** 行の終わりに並べる札の数の上限。これより多い分は、最後の札にまとめる */
+const TAG_SLOTS = 10;
+
 /**
  * 見た目ごとの装飾。font-size などは textDecoration に書き足す（VS Code の API に項目がないため）
  * - subtle：薄い色・斜体・少し小さく（コードと形で見分ける）
@@ -35,10 +40,7 @@ const MUTED_FONT = 0.85;
  * - lineEndTag：行の終わりに、列ごとの色の付いた札で並べる（既定。コードの形はそのままで、見分けやすい）
  * 行の終わりの位置（margin）は、揃えるために装飾ごとに決める
  */
-function createTypes(): Record<
-  DecoratedStyle,
-  vscode.TextEditorDecorationType
-> {
+function createTypes(): Record<SingleStyle, vscode.TextEditorDecorationType> {
   const muted = {
     color: color("logicalNameForeground"),
     textDecoration: `none; font-size: ${MUTED_FONT}em;`,
@@ -62,18 +64,41 @@ function createTypes(): Record<
     lineEnd: vscode.window.createTextEditorDecorationType({
       after: { ...muted, fontStyle: "italic" },
     }),
-    lineEndTag: vscode.window.createTextEditorDecorationType({
-      after: {
-        color: color("logicalNameTagForeground"),
-        backgroundColor: color("logicalNameTagBackground"),
-        textDecoration: `none; font-size: ${TAG_FONT}em; border-radius: 3px; padding: 0 0.45em;`,
-      },
-    }),
   };
+}
+
+/**
+ * lineEndTag の札の装飾。札の順番ごとに種類を分ける。
+ * VS Code は同じ位置の装飾を CSS のクラス名の順に並べ、クラス名は「種類の key と、装飾ごとの見た目から作る値」なので、
+ * 1 つの種類にまとめると札の並びが決まらない（書いた順と入れ替わる）。種類の key の順が作った順になるよう、
+ * key の桁が変わるところ（…9 と …10 など）に掛かったら作り直す
+ */
+function createTagSlotTypes(): vscode.TextEditorDecorationType[] {
+  const options: vscode.DecorationRenderOptions = {
+    after: {
+      color: color("logicalNameTagForeground"),
+      backgroundColor: color("logicalNameTagBackground"),
+      textDecoration: `none; font-size: ${TAG_FONT}em; border-radius: 3px; padding: 0 0.45em;`,
+    },
+  };
+  for (;;) {
+    const types = Array.from({ length: TAG_SLOTS }, () =>
+      vscode.window.createTextEditorDecorationType(options),
+    );
+    const keys = types.map((t) => t.key);
+    const ordered = keys.every(
+      (key, i) =>
+        key.length === keys[0]?.length &&
+        (i === 0 || (keys[i - 1] ?? "") < key),
+    );
+    if (ordered) return types;
+    for (const t of types) t.dispose();
+  }
 }
 
 export class LogicalNameDecorations implements vscode.Disposable {
   private readonly types = createTypes();
+  private readonly tagSlots = createTagSlotTypes();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly timers = new Map<
     vscode.TextEditor,
@@ -85,6 +110,7 @@ export class LogicalNameDecorations implements vscode.Disposable {
   constructor(private readonly editing: SqlEditing) {
     this.disposables.push(
       ...Object.values(this.types),
+      ...this.tagSlots,
       editing.onDidChangeSymbols(() => this.refreshAll()),
       vscode.window.onDidChangeVisibleTextEditors(() => this.refreshAll()),
       vscode.window.onDidChangeTextEditorVisibleRanges((event) =>
@@ -158,27 +184,45 @@ export class LogicalNameDecorations implements vscode.Disposable {
     }
     // その間にもう一度出し直していたら、古い結果は使わない
     if (this.versions.get(editor) !== version) return;
-    for (const [name, type] of Object.entries(this.types)) {
+    for (const [name, type] of Object.entries(this.types) as [
+      SingleStyle,
+      vscode.TextEditorDecorationType,
+    ][]) {
       editor.setDecorations(
         type,
         name === decorated ? this.options(editor, name, symbols) : [],
       );
     }
+    const tags =
+      decorated === "lineEndTag" ? this.lineEnd(editor, symbols, true) : [];
+    for (const [i, type] of this.tagSlots.entries()) {
+      editor.setDecorations(type, tags[i] ?? []);
+    }
+  }
+
+  /** 行の終わりに出すもの（札の順番ごと） */
+  private lineEnd(
+    editor: vscode.TextEditor,
+    symbols: readonly SqlSymbol[],
+    tags: boolean,
+  ): vscode.DecorationOptions[][] {
+    const tabSize = editor.options.tabSize;
+    return lineEndOptions(editor.document, symbols, {
+      tags,
+      slots: TAG_SLOTS,
+      align: logicalNamePrefs().align,
+      tabSize: typeof tabSize === "number" ? tabSize : 4,
+    });
   }
 
   private options(
     editor: vscode.TextEditor,
-    style: DecoratedStyle,
+    style: SingleStyle,
     symbols: readonly SqlSymbol[],
   ): vscode.DecorationOptions[] {
     const { document } = editor;
-    if (style === "lineEnd" || style === "lineEndTag") {
-      const tabSize = editor.options.tabSize;
-      return lineEndOptions(document, symbols, {
-        tags: style === "lineEndTag",
-        align: logicalNamePrefs().align,
-        tabSize: typeof tabSize === "number" ? tabSize : 4,
-      });
+    if (style === "lineEnd") {
+      return this.lineEnd(editor, symbols, false)[0] ?? [];
     }
     return symbols.map((symbol) => {
       const name = shortLogicalName(logicalNameOf(symbol) ?? "");
@@ -202,14 +246,15 @@ const ALIGN_MAX = 100;
 const GAP = 3;
 
 /**
- * 行の終わりに「物理名 論理名」を並べる（同じ行の同じ名前は 1 回だけ）。tags なら 1 つずつ札にする。
+ * 行の終わりに「物理名 論理名」を書いた順に並べる（同じ行の同じ名前は 1 回だけ）。
+ * tags なら 1 つずつ札にし、札の順番（slots まで）ごとに分けて返す。そうでなければ 1 つにまとめる。
  * align なら、空行で区切ったひとかたまりの行ごとに、いちばん長い行の後ろに縦に揃える
  */
 function lineEndOptions(
   document: vscode.TextDocument,
   symbols: readonly SqlSymbol[],
-  options: { tags: boolean; align: boolean; tabSize: number },
-): vscode.DecorationOptions[] {
+  options: { tags: boolean; slots: number; align: boolean; tabSize: number },
+): vscode.DecorationOptions[][] {
   const byLine = new Map<number, string[]>();
   for (const symbol of symbols) {
     const line = document.positionAt(symbol.end).line;
@@ -251,32 +296,33 @@ function lineEndOptions(
     }
   }
   const font = options.tags ? TAG_FONT : MUTED_FONT;
-  return [...byLine].flatMap(([line, entries]) => {
+  const slots: vscode.DecorationOptions[][] = [];
+  for (const [line, entries] of byLine) {
     const end = document.lineAt(line).range.end;
     const range = new vscode.Range(end, end);
     const pad = Math.max(GAP, (alignColumn.get(line) ?? 0) + GAP - width(line));
     // ch は装飾の字の大きさの幅なので、エディタの字の幅にそろえる
     const first = `0 0 0 calc(${pad}ch / ${font})`;
-    if (!options.tags) {
-      return [
-        {
-          range,
-          renderOptions: {
-            after: { contentText: `◂ ${entries.join("　")}`, margin: first },
-          },
+    const texts = options.tags
+      ? [
+          ...entries.slice(0, options.slots - 1),
+          ...(entries.length >= options.slots
+            ? [entries.slice(options.slots - 1).join("　")]
+            : []),
+        ]
+      : [`◂ ${entries.join("　")}`];
+    for (const [i, contentText] of texts.entries()) {
+      const slot = slots[i] ?? [];
+      slot.push({
+        range,
+        renderOptions: {
+          after: { contentText, margin: i === 0 ? first : "0 0 0 0.5em" },
         },
-      ];
+      });
+      slots[i] = slot;
     }
-    return entries.map((entry, i) => ({
-      range,
-      renderOptions: {
-        after: {
-          contentText: entry,
-          margin: i === 0 ? first : "0 0 0 0.5em",
-        },
-      },
-    }));
-  });
+  }
+  return slots;
 }
 
 /** 画面の上の幅（桁）。全角の文字は 2 桁、タブは次のタブの位置まで */

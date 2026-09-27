@@ -1,13 +1,14 @@
 import type { EventEmitter } from "node:events";
 import { reportParamProbe } from "@sql-editor-tool/core";
 import {
+  DbQueryError,
   isAbortError,
   type QueryHandlers,
   type QueryRequest,
 } from "@sql-editor-tool/host";
 import { type Request, TYPES } from "tedious";
 import { describe, expect, test } from "vitest";
-import { MssqlSession, type SqlConnection } from "./session";
+import { MssqlSession, type SqlConnection, toQueryError } from "./session";
 
 type Column = { colName: string; type: { name: string } };
 
@@ -438,5 +439,41 @@ WHERE 受注日 >= :開始日
       }),
     ).rejects.toThrow();
     expect(connections.flatMap((c) => c.requests)).toEqual([]);
+  });
+});
+
+describe("toQueryError（O-18：複数のエラーが空のメッセージで届いた）", () => {
+  const requestError = (message: string, lineNumber: number, number = 102) =>
+    Object.assign(new Error(message), { lineNumber, number });
+
+  test("tedious の AggregateError（message が空）から、それぞれのメッセージと行を取り出す。同じものは 1 つに", () => {
+    const error = toQueryError(
+      new AggregateError([
+        requestError("':' 付近に不適切な構文があります。", 5),
+        requestError("':' 付近に不適切な構文があります。", 5),
+        requestError("'ORDER' 付近に不適切な構文があります。", 12, 156),
+      ]),
+    );
+    expect(error).toBeInstanceOf(DbQueryError);
+    expect((error as DbQueryError).message).toBe(
+      "':' 付近に不適切な構文があります。 ／ 'ORDER' 付近に不適切な構文があります。",
+    );
+    expect((error as DbQueryError).details).toEqual([
+      { message: "':' 付近に不適切な構文があります。", line: 5 },
+      { message: "'ORDER' 付近に不適切な構文があります。", line: 12 },
+    ]);
+  });
+
+  test("メッセージがなければ、空にせずエラー番号を出す。1 つのエラーもそのまま行を持つ", () => {
+    expect(
+      (toQueryError(new AggregateError([requestError("", 1, 102)])) as Error)
+        .message,
+    ).toBe(
+      "SQL Server がエラーを返しましたが、メッセージがありませんでした（エラー番号 102）",
+    );
+    expect(
+      (toQueryError(requestError("列名 'X' が無効です。", 3)) as DbQueryError)
+        .details,
+    ).toEqual([{ message: "列名 'X' が無効です。", line: 3 }]);
   });
 });

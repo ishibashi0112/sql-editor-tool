@@ -12,10 +12,12 @@ import {
   abortError,
   type CellValue,
   type DbObject,
+  DbQueryError,
   type DbSession,
   type QueryHandlers,
   type QueryRequest,
   type SchemaObject,
+  type SqlErrorDetail,
   type TableDescription,
 } from "@sql-editor-tool/host";
 import { Connection, Request } from "tedious";
@@ -236,15 +238,47 @@ export class MssqlSession implements DbSession {
 }
 
 /**
+ * tedious のエラーを DbQueryError にする。1 回の実行で複数のエラーが届くと、tedious は AggregateError
+ * （message が空）にまとめるので、それぞれのメッセージと SQL の行を取り出す。
+ * 空のまま画面に出していて、実行しても何も起きないように見えた（O-18。社内の SQL Server 2012 で起きた）
+ */
+export function toQueryError(error: unknown): unknown {
+  const list = error instanceof AggregateError ? error.errors : [error];
+  const details: SqlErrorDetail[] = [];
+  for (const item of list) {
+    if (!(item instanceof Error)) continue;
+    const line = (item as { lineNumber?: unknown }).lineNumber;
+    const detail: SqlErrorDetail = {
+      message: item.message.trim(),
+      ...(typeof line === "number" && line > 0 ? { line } : {}),
+    };
+    if (
+      !details.some(
+        (d) => d.message === detail.message && d.line === detail.line,
+      )
+    ) {
+      details.push(detail);
+    }
+  }
+  if (details.length === 0) return error;
+  const number = (list[0] as { number?: unknown } | undefined)?.number;
+  return new DbQueryError(
+    details,
+    `SQL Server がエラーを返しましたが、メッセージがありませんでした${typeof number === "number" ? `（エラー番号 ${number}）` : ""}`,
+  );
+}
+
+/**
  * 推定できない変数を挙げたエラー（11502 など）なら、その変数の名前（p1 など）。
  * メッセージは言語の設定で変わるので、@p1 の形だけを探す。
- * SQL の誤りなどでは複数のエラーがまとめて届く（AggregateError）が、そのときは null
+ * SQL の誤りなどでは複数のエラーがまとめて届くが、そのときは null
  */
 function undeduciblePlaceholder(
   error: unknown,
   known: ReadonlySet<string>,
 ): string | null {
   if (!(error instanceof Error) || error instanceof AggregateError) return null;
+  if (error instanceof DbQueryError && error.details.length > 1) return null;
   for (const match of error.message.matchAll(/@(p\d+)\b/g)) {
     const name = match[1];
     if (name && known.has(name)) return name;
@@ -352,7 +386,7 @@ export function execute(
       if (!error) guard(flush);
       if (failure) reject(failure.error);
       else if (cancelled) reject(abortError());
-      else if (error) reject(error);
+      else if (error) reject(toQueryError(error));
       else resolve();
     });
     for (const param of params) {

@@ -4,12 +4,15 @@ import type { ToResults } from "./resultsProtocol";
 import {
   MAX_RESULT_TABS,
   ResultsController,
+  type ResultsDeps,
   type RunRequest,
   type RunStatement,
 } from "./resultsView";
 
 // デモのテーブル（架空）を使う
-function setup() {
+function setup(
+  options: { currentStatement?: ResultsDeps["currentStatement"] } = {},
+) {
   const session = new DemoSession({ dialect: "mssql", chunkDelayMs: 0 });
   const messages: ToResults[] = [];
   const values = new Map<string, Record<string, string>>();
@@ -27,6 +30,9 @@ function setup() {
     chooseConnection: () => {},
     focus,
     now: () => new Date(2026, 8, 27, 10, 0),
+    ...(options.currentStatement
+      ? { currentStatement: options.currentStatement }
+      : {}),
   });
   const tabs = () => messages.filter((m) => m.type === "tabs").at(-1);
   const tabMessages = (tabId: string) =>
@@ -197,5 +203,110 @@ describe("ResultsController", () => {
     const list = tabs()?.tabs ?? [];
     expect(list).toHaveLength(MAX_RESULT_TABS);
     expect(list[0]?.label).toBe("1.sql");
+  });
+});
+
+describe("思わぬ例外（O-18）", () => {
+  test("タブの処理で例外が起きても、黙って止まらずタブにエラーとして出す", async () => {
+    const { controller, tabMessages, ready, focus } = setup();
+    focus.mockImplementation(() => {
+      throw new Error("パネルを開けません");
+    });
+    // 必須の入力欄が空なので、パネルにフォーカスを移そうとして例外になる
+    controller.run(
+      request("file:///受注.sql", [
+        statement("SELECT * FROM ORDERS WHERE CUST_CD = :得意先"),
+      ]),
+    );
+    await ready("tab1");
+    expect(tabMessages("tab1").at(-1)).toEqual({
+      type: "queryFailed",
+      queryId: 0,
+      message: "思わぬエラーで止まりました：パネルを開けません",
+      cancelled: false,
+    });
+  });
+});
+
+describe("結果のタブの ▶ 実行は、エディタの今の SQL で実行する（D-46）", () => {
+  test("書き換えに合わせて文の位置を追う（前はずらし、中と終わりのすぐ後ろは文に含める）", () => {
+    let seen: RunStatement | null = null;
+    const { controller, ready } = setup({
+      currentStatement: (_source, statement) => {
+        seen = statement;
+        return null;
+      },
+    });
+    // "-- メモ\n" の後の文（8〜28）
+    controller.run(
+      request("file:///受注.sql", [
+        { sql: "SELECT * FROM ORDERS", start: 8, end: 28, line: 1 },
+      ]),
+    );
+    void ready("tab1");
+    const at = async () => {
+      await controller.handle({
+        type: "tab",
+        tabId: "tab1",
+        message: { type: "execute", mode: "all" },
+      });
+      return seen && [seen.start, seen.end];
+    };
+    return (async () => {
+      // 文の前に 3 文字足す
+      controller.shift("file:///受注.sql", [
+        { offset: 0, deleted: 0, inserted: 3 },
+      ]);
+      expect(await at()).toEqual([11, 31]);
+      // 文の中に 6 文字足し、終わりのすぐ後ろに 10 文字足す（同じ書き換えの中で）
+      controller.shift("file:///受注.sql", [
+        { offset: 20, deleted: 0, inserted: 6 },
+        { offset: 31, deleted: 0, inserted: 10 },
+      ]);
+      expect(await at()).toEqual([11, 47]);
+      // 文の後ろ（離れたところ）は変わらない。ほかのファイルも変わらない
+      controller.shift("file:///受注.sql", [
+        { offset: 60, deleted: 5, inserted: 0 },
+      ]);
+      controller.shift("file:///得意先.sql", [
+        { offset: 0, deleted: 0, inserted: 100 },
+      ]);
+      expect(await at()).toEqual([11, 47]);
+      // 文の頭にまたがって消すと、消した範囲の頭から
+      controller.shift("file:///受注.sql", [
+        { offset: 5, deleted: 10, inserted: 0 },
+      ]);
+      expect(await at()).toEqual([5, 37]);
+    })();
+  });
+
+  test("SQL が変わっていれば、今の SQL で入力欄と SQL を作り直して実行する。行が変われば見出しも", async () => {
+    let current: RunStatement | null = null;
+    const { controller, tabs, tabMessages, ready } = setup({
+      currentStatement: () => current,
+    });
+    controller.run(
+      request("file:///受注.sql", [statement("SELECT * FROM ORDERS", 0)]),
+    );
+    await ready("tab1");
+    current = {
+      sql: "SELECT * FROM CUSTOMERS WHERE CUST_CD = :得意先",
+      start: 30,
+      end: 76,
+      line: 3,
+    };
+    await controller.handle({
+      type: "tab",
+      tabId: "tab1",
+      message: { type: "execute", mode: "all" },
+    });
+    const messages = tabMessages("tab1");
+    const init = messages.filter((m) => m.type === "init").at(-1);
+    expect(
+      init?.type === "init" && init.view.params.map((p) => p.name),
+    ).toEqual(["得意先"]);
+    // 必須の入力欄が空なので、実行せずに入力欄にカーソルを置く
+    expect(messages.at(-1)).toEqual({ type: "focusParam", name: "得意先" });
+    expect(tabs()?.tabs[0]?.detail).toBe("受注.sql の 4 行目");
   });
 });

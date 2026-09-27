@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
-  "version": "0.8.1",
+  "version": "0.10.3",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -49,11 +49,6 @@
           "id": "sqlEditorTool.connections",
           "name": "接続",
           "initialSize": 1
-        },
-        {
-          "id": "sqlEditorTool.reports",
-          "name": "レポート",
-          "initialSize": 1
         }
       ],
       "sqlEditorToolResults": [
@@ -67,17 +62,7 @@
     "viewsWelcome": [
       {
         "view": "sqlEditorTool.connections",
-        "contents": "接続がありません。\n[接続を追加](command:sqlEditorTool.addConnection)"
-      },
-      {
-        "view": "sqlEditorTool.reports",
-        "contents": "レポート（フォームつきの SQL）を保存するフォルダを選んでください。\n[フォルダを選ぶ](command:sqlEditorTool.changeReportsFolder)\n[新しいレポート](command:sqlEditorTool.newReport)",
-        "when": "!sqlEditorTool.reportsFolderSet"
-      },
-      {
-        "view": "sqlEditorTool.reports",
-        "contents": "レポートがありません。\n[新しいレポート](command:sqlEditorTool.newReport)",
-        "when": "sqlEditorTool.reportsFolderSet"
+        "contents": "接続がありません。\n[接続を追加](command:sqlEditorTool.addConnection)\n別の PC で書き出した設定があれば、読み込めます。\n[設定を読み込む](command:sqlEditorTool.importSettings)"
       }
     ],
     "commands": [
@@ -86,6 +71,11 @@
         "title": "SQL を実行",
         "category": "SQL Editor Tool",
         "icon": "$(play)"
+      },
+      {
+        "command": "sqlEditorTool.formatSql",
+        "title": "SQL を整形（:名前 を分けない）",
+        "category": "SQL Editor Tool"
       },
       {
         "command": "sqlEditorTool.runStatementAt",
@@ -120,57 +110,6 @@
         "category": "SQL Editor Tool"
       },
       {
-        "command": "sqlEditorTool.newReport",
-        "title": "新しいレポート",
-        "category": "SQL Editor Tool",
-        "icon": "$(new-file)"
-      },
-      {
-        "command": "sqlEditorTool.openReport",
-        "title": "レポートとして開く",
-        "category": "SQL Editor Tool",
-        "icon": "$(open-preview)"
-      },
-      {
-        "command": "sqlEditorTool.showReports",
-        "title": "レポートを開く",
-        "category": "SQL Editor Tool",
-        "icon": "$(search)"
-      },
-      {
-        "command": "sqlEditorTool.editReportSql",
-        "title": "SQL を編集",
-        "category": "SQL Editor Tool",
-        "icon": "$(edit)"
-      },
-      {
-        "command": "sqlEditorTool.renameReport",
-        "title": "名前を変更",
-        "category": "SQL Editor Tool"
-      },
-      {
-        "command": "sqlEditorTool.deleteReport",
-        "title": "削除",
-        "category": "SQL Editor Tool"
-      },
-      {
-        "command": "sqlEditorTool.revealReport",
-        "title": "エクスプローラーで表示",
-        "category": "SQL Editor Tool"
-      },
-      {
-        "command": "sqlEditorTool.refreshReports",
-        "title": "最新の情報に更新",
-        "category": "SQL Editor Tool",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "sqlEditorTool.changeReportsFolder",
-        "title": "レポートのフォルダを変更",
-        "category": "SQL Editor Tool",
-        "icon": "$(folder-opened)"
-      },
-      {
         "command": "sqlEditorTool.chooseSqlConnection",
         "title": "SQL の補完に使う接続を選ぶ",
         "category": "SQL Editor Tool",
@@ -179,6 +118,16 @@
       {
         "command": "sqlEditorTool.toggleLogicalNameHints",
         "title": "SQL の論理名の表示を切り替える（常に／カーソルの行だけ／出さない）",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.exportSettings",
+        "title": "設定を書き出す（別の PC へ引き継ぐ）",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.importSettings",
+        "title": "設定を読み込む（別の PC で書き出したもの）",
         "category": "SQL Editor Tool"
       }
     ],
@@ -195,24 +144,14 @@
           "group": "navigation"
         },
         {
-          "command": "sqlEditorTool.newReport",
-          "when": "view == sqlEditorTool.reports",
-          "group": "navigation@1"
+          "command": "sqlEditorTool.exportSettings",
+          "when": "view == sqlEditorTool.connections",
+          "group": "9_transfer@1"
         },
         {
-          "command": "sqlEditorTool.showReports",
-          "when": "view == sqlEditorTool.reports",
-          "group": "navigation@2"
-        },
-        {
-          "command": "sqlEditorTool.refreshReports",
-          "when": "view == sqlEditorTool.reports",
-          "group": "navigation@3"
-        },
-        {
-          "command": "sqlEditorTool.changeReportsFolder",
-          "when": "view == sqlEditorTool.reports",
-          "group": "navigation@4"
+          "command": "sqlEditorTool.importSettings",
+          "when": "view == sqlEditorTool.connections",
+          "group": "9_transfer@2"
         }
       ],
       "view/item/context": [
@@ -223,31 +162,6 @@
         {
           "command": "sqlEditorTool.removeConnection",
           "when": "view == sqlEditorTool.connections && viewItem == connection"
-        },
-        {
-          "command": "sqlEditorTool.editReportSql",
-          "when": "view == sqlEditorTool.reports && viewItem == report",
-          "group": "inline"
-        },
-        {
-          "command": "sqlEditorTool.editReportSql",
-          "when": "view == sqlEditorTool.reports && viewItem == report",
-          "group": "1_open@1"
-        },
-        {
-          "command": "sqlEditorTool.renameReport",
-          "when": "view == sqlEditorTool.reports && viewItem == report",
-          "group": "2_edit@1"
-        },
-        {
-          "command": "sqlEditorTool.deleteReport",
-          "when": "view == sqlEditorTool.reports && viewItem == report",
-          "group": "2_edit@2"
-        },
-        {
-          "command": "sqlEditorTool.revealReport",
-          "when": "view == sqlEditorTool.reports",
-          "group": "3_reveal@1"
         }
       ],
       "commandPalette": [
@@ -261,22 +175,6 @@
         },
         {
           "command": "sqlEditorTool.openTable",
-          "when": "false"
-        },
-        {
-          "command": "sqlEditorTool.editReportSql",
-          "when": "false"
-        },
-        {
-          "command": "sqlEditorTool.renameReport",
-          "when": "false"
-        },
-        {
-          "command": "sqlEditorTool.deleteReport",
-          "when": "false"
-        },
-        {
-          "command": "sqlEditorTool.revealReport",
           "when": "false"
         },
         {
@@ -297,18 +195,6 @@
           "command": "sqlEditorTool.runSql",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
           "group": "navigation@1"
-        },
-        {
-          "command": "sqlEditorTool.openReport",
-          "when": "resourceExtname == .sql",
-          "group": "navigation@2"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "sqlEditorTool.openReport",
-          "when": "resourceExtname == .sql",
-          "group": "navigation"
         }
       ],
       "editor/context": [
@@ -316,6 +202,11 @@
           "command": "sqlEditorTool.runSql",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
           "group": "navigation@0"
+        },
+        {
+          "command": "sqlEditorTool.formatSql",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "1_modification@9"
         }
       ]
     },
@@ -363,11 +254,6 @@
           "default": "",
           "markdownDescription": "SQL Server へのログインで使う TLS の最低のバージョン。古い SQL Server で TLS のエラーになって接続できないときだけ変更します。"
         },
-        "sqlEditorTool.reports.folder": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "レポート（フォームつきの SQL、`.sql` ファイル）を保存するフォルダ。サイドバーの「レポート」に、このフォルダの中の `.sql` が並びます。空のときは、初めてレポートを作るときに選びます。"
-        },
         "sqlEditorTool.logicalNames.headers": {
           "type": "string",
           "enum": [
@@ -387,6 +273,56 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "`.sql` の文ごとに「▶ 実行」を出します（Ctrl+Enter でも実行できます）。"
+        },
+        "sqlEditorTool.format.keywordCase": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "upper",
+            "lower"
+          ],
+          "enumDescriptions": [
+            "書いたまま",
+            "大文字にする",
+            "小文字にする"
+          ],
+          "default": "preserve",
+          "markdownDescription": "`.sql` を整形するときの、キーワード（SELECT など）の大文字・小文字。"
+        },
+        "sqlEditorTool.format.logicalOperatorNewline": {
+          "type": "string",
+          "enum": [
+            "before",
+            "after"
+          ],
+          "enumDescriptions": [
+            "AND・OR を行の頭に置く",
+            "AND・OR を行の終わりに置く"
+          ],
+          "default": "before",
+          "markdownDescription": "`.sql` を整形するときの、AND・OR の位置。"
+        },
+        "sqlEditorTool.format.expressionWidth": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "markdownDescription": "`.sql` を整形するときに、括弧の中をこの文字数までなら 1 行にまとめます。"
+        },
+        "sqlEditorTool.format.linesBetweenQueries": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 0,
+          "markdownDescription": "`.sql` を整形するときの、`;`・`GO`・`/` で区切った文の間の空行の数。"
+        },
+        "sqlEditorTool.format.denseOperators": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "`.sql` を整形するときに、演算子（`=`・`+` など）の前後に空白を入れません。"
+        },
+        "sqlEditorTool.format.newlineBeforeSemicolon": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "`.sql` を整形するときに、`;` の前で改行します。"
         },
         "sqlEditorTool.logicalNames.show": {
           "type": "string",

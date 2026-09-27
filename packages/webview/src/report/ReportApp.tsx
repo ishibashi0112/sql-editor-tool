@@ -1,5 +1,7 @@
-// レポート（SQL＋フォーム）の画面（docs/handover.md §16、D-31〜D-35）。
-// 上にフォーム（入力欄を横に並べる）、その下に結果。入力欄の設定は「⚙ 入力欄」で一覧の表にして直す
+// 「SQL の結果」のパネルのタブの中身（D-41・D-43）：.sql を実行した結果と、:名前・@名前 の入力欄。
+// 0.8 までの「レポート」の画面を元にしている（名前はそのまま）。上に入力欄（横に並べる）、その下に結果。
+// 高さが限られるので、ボタンは 1 行にまとめ、入力欄がなければフォームの行を出さない。
+// 入力欄の設定は「⚙ 入力欄」で一覧の表にして直す（VS Code の中にファイルごとに覚える。D-44）
 
 import {
   isRelativeDate,
@@ -54,19 +56,7 @@ const TYPE_LABELS: Record<ReportParamType, string> = {
 
 const isDateType = (type: ReportParamType) => type === "date" || type === "ymd";
 
-/**
- * report はレポートの画面（エディタのタブ）。results は「SQL の結果」のパネルのタブの中身（D-41）：
- * 高さが限られるので、ボタンを 1 行にまとめ、入力欄がなければフォームの行を出さない
- */
-export type ReportVariant = "report" | "results";
-
-export function ReportApp({
-  api,
-  variant = "report",
-}: {
-  api: ReportApi;
-  variant?: ReportVariant;
-}) {
+export function ReportApp({ api }: { api: ReportApi }) {
   const [view, setView] = useState<ReportInit | null>(null);
   /** init のたびに増やし、フォームを作り直す（入力欄は非制御なので、既定値を入れ直すため） */
   const [version, setVersion] = useState(0);
@@ -79,6 +69,7 @@ export function ReportApp({
   );
   const result = useQueryResult();
   const handleQuery = result.handle;
+  const { notice } = result;
   const { queryIdRef } = result;
   const [headerMode, setHeaderMode] = useHeaderMode(api);
   const valuesRef = useRef<ReportFormValues>({});
@@ -113,13 +104,18 @@ export function ReportApp({
         case "focusParam":
           focusParam(rootRef, message.name);
           return;
+        case "queryNotice":
+          notice(message.notice);
+          return;
       }
     });
     api.post({ type: "ready" });
     return unsubscribe;
-  }, [api, handleQuery, queryIdRef]);
+  }, [api, handleQuery, notice, queryIdRef]);
 
-  const running = result.query.status === "running";
+  // 接続している間も、中止はできる（接続が済んでも実行しない）
+  const running =
+    result.query.status === "running" || result.query.status === "connecting";
   const execute = useCallback(() => {
     if (!running) api.post({ type: "execute", mode: "all" });
   }, [api, running]);
@@ -139,7 +135,6 @@ export function ReportApp({
   if (!view) return <div className="message">読み込み中…</div>;
 
   const { connection, params } = view;
-  const compact = variant === "results";
   const connectionButton = (
     <button
       type="button"
@@ -155,11 +150,7 @@ export function ReportApp({
       type="button"
       className={editing ? "" : "secondary"}
       disabled={params.length === 0}
-      title={
-        params.length === 0
-          ? "SQL に :名前 を書くと入力欄になります"
-          : "入力欄の表示名・種類・必須・既定値を直す"
-      }
+      title="入力欄の表示名・種類・必須・既定値を直す"
       onClick={() => setEditing((e) => !e)}
     >
       ⚙ 入力欄
@@ -171,13 +162,9 @@ export function ReportApp({
         type="button"
         onClick={execute}
         disabled={running}
-        title={
-          compact
-            ? "実行したときの SQL をもう一度実行します（書き換えた SQL は、エディタで Ctrl+Enter）"
-            : undefined
-        }
+        title="エディタの今の SQL（この結果の文。保存していない書き換えも）を、入力欄の値で実行します"
       >
-        {compact ? "▶ 再実行" : "▶ 実行"}
+        ▶ 実行
       </button>
       <button
         type="button"
@@ -199,40 +186,24 @@ export function ReportApp({
     />
   );
   return (
-    <div className={compact ? "app compact" : "app"} ref={rootRef}>
-      {compact ? (
-        <header className="toolbar">
-          {runButtons}
-          <QueryStatus query={result.query} maxRows={view.maxRows} />
-          <span className="spacer" />
-          {headerToggle}
-          {copyButtons}
-          {connectionButton}
-          <button
-            type="button"
-            className="secondary"
-            title={`エディタで ${view.title} の文を選ぶ`}
-            onClick={() => api.post({ type: "editSql" })}
-          >
-            SQL へ移動
-          </button>
-          {params.length > 0 && settingsButton}
-        </header>
-      ) : (
-        <header className="toolbar">
-          <strong className="title">{view.title}</strong>
-          {connectionButton}
-          <span className="spacer" />
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => api.post({ type: "editSql" })}
-          >
-            SQL を編集
-          </button>
-          {settingsButton}
-        </header>
-      )}
+    <div className="app compact" ref={rootRef}>
+      <header className="toolbar">
+        {runButtons}
+        <QueryStatus query={result.query} maxRows={view.maxRows} />
+        <span className="spacer" />
+        {headerToggle}
+        {copyButtons}
+        {connectionButton}
+        <button
+          type="button"
+          className="secondary"
+          title={`エディタで ${view.title} の文を選ぶ`}
+          onClick={() => api.post({ type: "editSql" })}
+        >
+          SQL へ移動
+        </button>
+        {params.length > 0 && settingsButton}
+      </header>
       {view.configError && (
         <div className="notice error-notice">{view.configError}</div>
       )}
@@ -247,13 +218,8 @@ export function ReportApp({
           onCancel={() => setEditing(false)}
         />
       ) : (
-        (!compact || params.length > 0) && (
+        params.length > 0 && (
           <div className="form" key={version}>
-            {params.length === 0 && (
-              <span className="status">
-                入力欄はありません（SQL に :名前 を書くと入力欄になります）
-              </span>
-            )}
             {params.map((param) => (
               <ParamField
                 key={param.name}
@@ -264,21 +230,9 @@ export function ReportApp({
                 onEnter={execute}
               />
             ))}
-            {compact ? (
-              <span className="status">Enter で実行</span>
-            ) : (
-              runButtons
-            )}
+            <span className="status">Enter で実行</span>
           </div>
         )
-      )}
-      {!compact && (
-        <div className="toolbar statusbar">
-          <QueryStatus query={result.query} maxRows={view.maxRows} />
-          <span className="spacer" />
-          {headerToggle}
-          {copyButtons}
-        </div>
       )}
       <ResultPane
         columns={columns}
@@ -287,17 +241,13 @@ export function ReportApp({
         fetchedFilters={result.fetchedFilters}
         maxRows={view.maxRows}
         preview={preview}
-        previewLabel={
-          compact
-            ? "SQL（実行した SQL。画面で絞り込んでいれば WHERE・ORDER BY も付く）"
-            : "SQL（フォームの値を入れたもの。画面で絞り込んでいれば WHERE・ORDER BY も付く）"
-        }
+        previewLabel="SQL（実行した SQL。入力欄の値を入れたもの。画面で絞り込んでいれば WHERE・ORDER BY も付く）"
         onConditions={onConditions}
         onRefetch={() => api.post({ type: "execute", mode: "filtered" })}
         idleText={
-          compact && params.length > 0
+          params.length > 0
             ? "入力欄に値を入れて Enter で実行すると、ここに結果が出ます"
-            : "値を入れて実行すると、ここに結果が出ます"
+            : "実行すると、ここに結果が出ます"
         }
         headerMode={headerMode}
         notice={
@@ -563,7 +513,7 @@ function ParamSettings({
       <p className="status help">
         日付の既定値には、今日・月初・月末・年初・年末・年度初（4 月 1
         日）・年度末と、±N日・±Nか月・±N年を書けます（例：月初-1か月、今日-7日。昨日・前月初・前月末・翌月初
-        なども可）。レポートを開くたびに計算します
+        なども可）。実行するたびに計算します
       </p>
       <div className="buttons">
         <button type="submit">保存</button>
@@ -571,7 +521,8 @@ function ParamSettings({
           取り消し
         </button>
         <span className="status">
-          保存すると .sql の先頭のコメントに書き込みます
+          この PC の VS Code に、ファイルごとに保存します（.sql
+          は書き換えません）
         </span>
       </div>
     </form>

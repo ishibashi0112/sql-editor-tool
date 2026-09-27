@@ -23,7 +23,7 @@ type Scanned = {
 const WORD_START = /[\p{L}_#@$]/u;
 const WORD_PART = /[\p{L}\p{N}_$#@]/u;
 
-function scan(dialect: Dialect, text: string): Scanned {
+export function scan(dialect: Dialect, text: string): Scanned {
   const tokens: ScanToken[] = [];
   const opaque: Scanned["opaque"] = [];
   let depth = 0;
@@ -92,12 +92,21 @@ function scan(dialect: Dialect, text: string): Scanned {
       while (j < text.length && WORD_PART.test(text.charAt(j))) j += 1;
       const upper = text.slice(i, j).toUpperCase();
       // N'...'、Oracle の q'[...]' は文字列
-      if (
-        text.charAt(j) === "'" &&
-        (upper === "N" ||
-          (dialect.name === "oracle" && (upper === "Q" || upper === "NQ")))
-      ) {
+      if (text.charAt(j) === "'" && upper === "N") {
         i = quoted(j, "'", "string");
+      } else if (
+        text.charAt(j) === "'" &&
+        dialect.name === "oracle" &&
+        (upper === "Q" || upper === "NQ")
+      ) {
+        const end = qQuoteEnd(text, j);
+        opaque.push({
+          start: j,
+          end: end < 0 ? text.length : end,
+          open: end < 0,
+          line: false,
+        });
+        i = end < 0 ? text.length : end;
       } else {
         push("word", i, j);
         i = j;
@@ -119,6 +128,21 @@ function scan(dialect: Dialect, text: string): Scanned {
     }
   }
   return { tokens, opaque };
+}
+
+/** Oracle の代替引用符 q'[...]' の終わりの直後の位置（quote は ' の位置）。閉じていなければ -1 */
+function qQuoteEnd(text: string, quote: number): number {
+  const open = text.charAt(quote + 1);
+  if (!open) return -1;
+  const pairs: Record<string, string> = {
+    "[": "]",
+    "(": ")",
+    "{": "}",
+    "<": ">",
+  };
+  const close = `${pairs[open] ?? open}'`;
+  const k = text.indexOf(close, quote + 2);
+  return k < 0 ? -1 : k + close.length;
 }
 
 /** ブロックコメントの終わりの直後の位置。閉じていなければ -1。SQL Server は入れ子にできる */
@@ -489,20 +513,10 @@ function statementSpans(
     from = nextFrom;
     mainSelect = false;
   };
-  /** 字句だけの行か（GO や / の行） */
-  const aloneOnLine = (t: ScanToken) => {
-    const lineStart = text.lastIndexOf("\n", t.start - 1) + 1;
-    const lineEnd = text.indexOf("\n", t.end);
-    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
-    return line.trim() === t.text;
-  };
   for (const [i, t] of tokens.entries()) {
     if (isPunct(t, ";") && t.depth === 0) {
       close(i, t.start, t.end, i + 1);
-    } else if (
-      (dialect.name === "mssql" && isWord(t, "GO") && aloneOnLine(t)) ||
-      (dialect.name === "oracle" && t.text === "/" && aloneOnLine(t))
-    ) {
+    } else if (isSeparatorLine(dialect, text, t)) {
       close(i, t.start, t.end, i + 1);
     } else if (i > first && startsQuery(tokens, first, i, mainSelect)) {
       close(i, t.start, t.start, i);
@@ -512,6 +526,32 @@ function statementSpans(
   }
   close(tokens.length, text.length, text.length, tokens.length);
   return spans;
+}
+
+/** 文の区切りの行（SQL Server の GO だけの行、Oracle の / だけの行）の字句か */
+function isSeparatorLine(
+  dialect: Dialect,
+  text: string,
+  t: ScanToken,
+): boolean {
+  const separator =
+    (dialect.name === "mssql" && isWord(t, "GO")) ||
+    (dialect.name === "oracle" && t.text === "/");
+  if (!separator) return false;
+  const lineStart = text.lastIndexOf("\n", t.start - 1) + 1;
+  const lineEnd = text.indexOf("\n", t.end);
+  const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+  return line.trim() === t.text;
+}
+
+/** 文の区切りの行（GO や /）の字句の位置。整形（format.ts）はこの行で分けてから整形する */
+export function separatorLines(
+  dialect: Dialect,
+  text: string,
+): { start: number; end: number }[] {
+  return scan(dialect, text)
+    .tokens.filter((t) => isSeparatorLine(dialect, text, t))
+    .map(({ start, end }) => ({ start, end }));
 }
 
 /** tokens[i] で新しい問い合わせが始まるか（; を書かずに並べた問い合わせの区切り） */
@@ -822,6 +862,11 @@ export function sqlKeywords(dialect: Dialect): string[] {
 }
 
 /** 引用符なしでは名前に使えない語（両方の DB でよく当たるものだけ） */
+/** SQL の予約語か（大文字小文字を区別しない） */
+export function isReservedWord(word: string): boolean {
+  return RESERVED.has(word.toUpperCase());
+}
+
 const RESERVED = new Set([
   "ADD",
   "ALL",

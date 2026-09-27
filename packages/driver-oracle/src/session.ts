@@ -9,7 +9,9 @@ import {
   abortError,
   type CellValue,
   type DbObject,
+  DbQueryError,
   type DbSession,
+  lineAt,
   type QueryHandlers,
   type QueryRequest,
   type SchemaObject,
@@ -280,7 +282,7 @@ export class OracleSession implements DbSession {
     } catch (error) {
       // break() で止めたときは ORA-01013 などになる
       if (signal.aborted) throw abortError();
-      throw error;
+      throw toQueryError(error, sql);
     } finally {
       signal.removeEventListener("abort", onAbort);
       if (breaking) {
@@ -294,6 +296,20 @@ export class OracleSession implements DbSession {
       await connection.close({ drop: breaking !== null }).catch(() => {});
     }
   }
+}
+
+/**
+ * node-oracledb のエラーを DbQueryError にする。offset（SQL の中のエラーの位置）があれば、行にして画面に出す（O-18）
+ */
+export function toQueryError(error: unknown, sql: string): unknown {
+  if (!(error instanceof Error)) return error;
+  const offset = (error as { offset?: unknown }).offset;
+  const line =
+    typeof offset === "number" && offset > 0 ? lineAt(sql, offset) : undefined;
+  return new DbQueryError(
+    [{ message: error.message, ...(line ? { line } : {}) }],
+    error.message,
+  );
 }
 
 function textOrNull(value: CellValue | undefined): string | null {

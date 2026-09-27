@@ -1,4 +1,5 @@
 import {
+  DbQueryError,
   isAbortError,
   type QueryHandlers,
   type QueryRequest,
@@ -10,6 +11,7 @@ import {
   type OracleConnection,
   type OraclePool,
   OracleSession,
+  toQueryError,
 } from "./session";
 
 type Reply = { columns: string[]; rows: unknown[][] };
@@ -281,5 +283,29 @@ describe("connectDescriptor", () => {
     expect(() =>
       connectDescriptor({ host: "h", port: 0, serviceName: "S" }),
     ).toThrow("ポート");
+  });
+});
+
+describe("toQueryError（O-18）", () => {
+  test("offset（SQL の中のエラーの位置）を行にする。0 なら行は付けない", () => {
+    const sql = "SELECT a\nFROM t\nWHERE x = = 1";
+    const error = toQueryError(
+      Object.assign(new Error("ORA-00936: 式がありません。"), {
+        offset: sql.indexOf("= 1"),
+      }),
+      sql,
+    );
+    expect(error).toBeInstanceOf(DbQueryError);
+    expect((error as DbQueryError).details).toEqual([
+      { message: "ORA-00936: 式がありません。", line: 3 },
+    ]);
+    expect(
+      (
+        toQueryError(
+          Object.assign(new Error("NJS-500: 接続が切れました"), { offset: 0 }),
+          sql,
+        ) as DbQueryError
+      ).details,
+    ).toEqual([{ message: "NJS-500: 接続が切れました" }]);
   });
 });

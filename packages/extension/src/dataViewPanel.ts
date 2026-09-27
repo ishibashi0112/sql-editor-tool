@@ -9,6 +9,7 @@ import {
   type FromWebview,
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
+import { STATE_KEYS } from "./fileSettings";
 import { connectPrefs } from "./viewPrefs";
 
 export type OpenDataViewInput = {
@@ -23,7 +24,7 @@ export type OpenDataViewInput = {
   state: vscode.Memento;
 };
 
-const TABLE_SETTINGS_KEY = "sqlEditorTool.tableSettings";
+const TABLE_SETTINGS_KEY = STATE_KEYS.tableSettings;
 
 /** 列の設定は、接続名・スキーマ・テーブルごとに持つ（接続の ID は PC ごとに違うので、レポートと同じく名前で結び付ける） */
 function tableSettingsKey(connectionName: string, table: TableRef): string {

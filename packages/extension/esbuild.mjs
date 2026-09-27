@@ -35,11 +35,10 @@ const contexts = await Promise.all([
   }),
   context({
     ...common,
-    // データビュー（main）、サイドバーのテーブル検索（search）、レポート（report）、SQL の結果のパネル（results）
+    // データビュー（main）、サイドバーのテーブル検索（search）、SQL の結果のパネル（results）
     entryPoints: {
       main: here("../webview/src/main.tsx"),
       search: here("../webview/src/search/main.ts"),
-      report: here("../webview/src/report/main.tsx"),
       results: here("../webview/src/results/main.tsx"),
     },
     outdir: here("./dist/webview"),

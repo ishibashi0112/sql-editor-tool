@@ -41,6 +41,7 @@ export {
   type ResultsDeps,
   type RunRequest,
   type RunStatement,
+  type TextChange,
 } from "./resultsView";
 export type {
   FromSearchView,
@@ -51,14 +52,26 @@ export {
   abortError,
   type CellValue,
   type DbObject,
+  DbQueryError,
   type DbSession,
   isAbortError,
+  lineAt,
   type QueryHandlers,
   type QueryRequest,
   type ResultColumn,
   type SchemaObject,
+  type SqlErrorDetail,
   type TableDescription,
 } from "./session";
+export {
+  commonFolder,
+  fileUris,
+  parseSettingsExport,
+  remapFolders,
+  SETTINGS_FORMAT,
+  SETTINGS_VERSION,
+  type SettingsExport,
+} from "./settingsTransfer";
 export {
   type CompleteInput,
   type CompletionEntry,
