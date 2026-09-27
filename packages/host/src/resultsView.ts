@@ -60,12 +60,26 @@ export type ResultsDeps = {
   now?(): Date;
   /** 実行の経過を記録する（SQL の本文・入力した値・パスワードは渡さない） */
   log?(message: string): void;
+  /**
+   * タブの文の、今のエディタの中身（保存していない書き換えも。位置は shift で追っている）。
+   * 結果のタブの「▶ 実行」は、実行したときの SQL ではなく、これで実行する（D-46）。分からなければ null
+   */
+  currentStatement?(
+    source: string,
+    statement: RunStatement,
+  ): RunStatement | null;
 };
+
+/** 文書の書き換え（書き換える前の位置で。rangeOffset・rangeLength・text.length） */
+export type TextChange = { offset: number; deleted: number; inserted: number };
 
 type Tab = {
   info: ResultTab;
   source: string;
   statement: RunStatement;
+  /** 入力欄の設定と接続（「▶ 実行」で SQL を読み直すときに使う） */
+  config: ReportConfig | null;
+  connection: ReportConnection | null;
   controller: ReportController;
   /** 画面のタブの準備ができたら実行する */
   pending: boolean;
@@ -113,7 +127,36 @@ export class ResultsController {
   ): void {
     for (const tab of this.tabs) {
       if (tab.source !== source) continue;
+      tab.config = config;
+      tab.connection = connection;
       tab.controller.update(textOf(tab.statement, config), connection);
+    }
+  }
+
+  /**
+   * source の文書が書き換わったとき、タブの文の位置を追う（「▶ 実行」で今の SQL を読むため）。
+   * 文の中と、文の終わりのすぐ後ろの書き換えは文に含め、文の前の書き換えは位置をずらす
+   */
+  shift(source: string, changes: readonly TextChange[]): void {
+    // 後ろの書き換えから当てれば、前の書き換えの位置は変わらない
+    const sorted = [...changes].sort((a, b) => b.offset - a.offset);
+    for (const tab of this.tabs) {
+      if (tab.source !== source) continue;
+      let { start, end } = tab.statement;
+      for (const { offset, deleted, inserted } of sorted) {
+        const delta = inserted - deleted;
+        if (offset > end) continue;
+        if (offset + deleted <= start && offset < start) {
+          // 文より前
+          start += delta;
+          end += delta;
+        } else {
+          // 文に掛かる（はみ出した分は、書き換えた範囲の端に寄せる）
+          if (offset < start) start = offset;
+          end = Math.max(start, Math.max(end, offset + deleted) + delta);
+        }
+      }
+      tab.statement = { ...tab.statement, start, end };
     }
   }
 
@@ -157,8 +200,16 @@ export class ResultsController {
           return;
         }
         try {
-          await tab.controller.handle(message.message);
-          if (message.message.type === "ready" && tab.pending) {
+          const inner = message.message;
+          if (inner.type === "execute" && inner.mode === "all") {
+            // 「▶ 実行」と入力欄の Enter：エディタの今の SQL で実行する（D-46）
+            this.refreshStatement(tab);
+            const missing = await tab.controller.executeIfReady();
+            if (missing !== null) this.deps.focus();
+            return;
+          }
+          await tab.controller.handle(inner);
+          if (inner.type === "ready" && tab.pending) {
             tab.pending = false;
             // その間に実行し直して、タブを閉じていたら実行しない
             if (!this.tabs.includes(tab)) return;
@@ -189,6 +240,29 @@ export class ResultsController {
   dispose(): void {
     for (const tab of this.tabs) tab.controller.dispose();
     this.tabs = [];
+  }
+
+  /** タブの文を、エディタの今の中身に合わせる（変わっていれば入力欄と SQL を作り直す） */
+  private refreshStatement(tab: Tab): void {
+    const current = this.deps.currentStatement?.(tab.source, tab.statement);
+    if (!current) return;
+    const changed = current.sql !== tab.statement.sql;
+    const moved = current.line !== tab.statement.line;
+    tab.statement = current;
+    if (moved) {
+      tab.info = {
+        ...tab.info,
+        detail: tab.info.detail.replace(
+          / の \d+ 行目$/,
+          ` の ${current.line + 1} 行目`,
+        ),
+      };
+      this.postTabs();
+    }
+    if (changed) {
+      this.deps.log?.(`${tab.info.detail}：エディタの今の SQL で実行します`);
+      tab.controller.update(textOf(current, tab.config), tab.connection);
+    }
   }
 
   private createTab(
@@ -230,7 +304,15 @@ export class ResultsController {
     deps.log?.(
       `${info.detail}：実行します（${request.connection?.name ?? "接続が決まっていません"}）`,
     );
-    return { info, source, statement, controller, pending: true };
+    return {
+      info,
+      source,
+      statement,
+      config: request.config,
+      connection: request.connection,
+      controller,
+      pending: true,
+    };
   }
 
   private close(id: string): void {

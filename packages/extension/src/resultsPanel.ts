@@ -99,6 +99,8 @@ export class ResultsPanel
       },
       focus: () => this.view?.show(false),
       log: (message) => this.output.info(message),
+      currentStatement: (source, statement) =>
+        this.currentStatement(source, statement),
     });
 
     this.disposables.push(
@@ -126,6 +128,18 @@ export class ResultsPanel
         if (event.affectsConfiguration(`sqlEditorTool.${CODE_LENS_SETTING}`)) {
           this.lensesChanged.fire();
         }
+      }),
+      // 結果のタブの文の位置を、書き換えに合わせて追う（「▶ 実行」で今の SQL を読むため。D-46）
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (event.contentChanges.length === 0) return;
+        this.controller.shift(
+          event.document.uri.toString(),
+          event.contentChanges.map((change) => ({
+            offset: change.rangeOffset,
+            deleted: change.rangeLength,
+            inserted: change.text.length,
+          })),
+        );
       }),
       // エディタでファイルを前に出したら、そのファイルの結果のタブを前に出す
       vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -299,6 +313,34 @@ export class ResultsPanel
     );
     // 選んだら onDidChangeConnection でタブを作り直す
     await this.deps.editing.choose(document);
+  }
+
+  /**
+   * タブの文の今の中身（D-46）。位置は書き換えに合わせて追っている（ResultsController.shift）。
+   * その範囲の最初の文を使う（文の後ろに続けて別の文を書き足したとき、その文まで実行しないように）。
+   * ファイルを開いていない・範囲が空なら null（実行したときの SQL を使う）
+   */
+  private currentStatement(
+    source: string,
+    statement: RunStatement,
+  ): RunStatement | null {
+    const document = vscode.workspace.textDocuments.find(
+      (d) => d.uri.toString() === source,
+    );
+    if (!document) return null;
+    const text = document.getText();
+    const start = Math.min(statement.start, text.length);
+    const end = Math.min(Math.max(statement.end, start), text.length);
+    const slice = text.slice(start, end);
+    const dialect = getDialect(dialectOf(this.profileOf(source)));
+    const [first] = splitStatements(dialect, slice);
+    if (!first) return null;
+    return {
+      sql: slice.slice(first.start, first.end),
+      start: start + first.start,
+      end: start + first.end,
+      line: document.positionAt(start + first.start).line,
+    };
   }
 
   /** .sql の入力欄の設定（VS Code に覚えたものと、先頭の設定のコメント） */

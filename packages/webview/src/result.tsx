@@ -141,8 +141,7 @@ export function QueryStatus({
     case "lost":
       return (
         <span className="status warning">
-          前の結果は、画面を作り直したときに消えました（▶ 再実行
-          で取り直せます）
+          前の結果は、画面を作り直したときに消えました（▶ 実行 で取り直せます）
         </span>
       );
     case "running":

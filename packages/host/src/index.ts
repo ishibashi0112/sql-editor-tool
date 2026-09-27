@@ -41,6 +41,7 @@ export {
   type ResultsDeps,
   type RunRequest,
   type RunStatement,
+  type TextChange,
 } from "./resultsView";
 export type {
   FromSearchView,

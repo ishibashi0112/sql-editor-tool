@@ -162,9 +162,9 @@ export function ReportApp({ api }: { api: ReportApi }) {
         type="button"
         onClick={execute}
         disabled={running}
-        title="実行したときの SQL をもう一度実行します（書き換えた SQL は、エディタで Ctrl+Enter）"
+        title="エディタの今の SQL（この結果の文。保存していない書き換えも）を、入力欄の値で実行します"
       >
-        ▶ 再実行
+        ▶ 実行
       </button>
       <button
         type="button"
