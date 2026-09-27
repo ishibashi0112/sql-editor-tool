@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { ConnectionStore, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
+import { LogicalNameDecorations } from "./logicalNameDecorations";
 import { ReportPanels } from "./reportPanel";
 import {
   chooseReportsFolder,
@@ -56,6 +57,8 @@ export function activate(context: vscode.ExtensionContext): void {
     store,
     manager,
     editing,
+    // .sql の論理名の見た目（D-42）
+    new LogicalNameDecorations(editing),
     vscode.window.createTreeView("sqlEditorTool.connections", {
       treeDataProvider: tree,
       showCollapseAll: true,

@@ -41,8 +41,37 @@ export const SQL_SELECTOR: vscode.DocumentSelector = [
   { pattern: "**/*.SQL" },
 ];
 
-/** 論理名のインレイヒントを出すか（D-40） */
-const HINTS_SETTING = "logicalNames.inlayHints";
+/** 論理名をいつ出すか（D-40、D-42）。always：常に、cursorLine：カーソルのある行だけ、off：出さない */
+const SHOW_SETTING = "logicalNames.show";
+/** 論理名の見た目（D-42。logicalNameDecorations.ts） */
+const STYLE_SETTING = "logicalNames.style";
+
+export type LogicalNameShow = "always" | "cursorLine" | "off";
+export type LogicalNameStyle =
+  | "subtle"
+  | "bracket"
+  | "tag"
+  | "lineEnd"
+  | "inlayHint";
+
+export function logicalNamePrefs(): {
+  show: LogicalNameShow;
+  style: LogicalNameStyle;
+} {
+  const config = vscode.workspace.getConfiguration("sqlEditorTool");
+  const show = config.get<string>(SHOW_SETTING, "always");
+  const style = config.get<string>(STYLE_SETTING, "subtle");
+  return {
+    show: show === "cursorLine" || show === "off" ? show : "always",
+    style:
+      style === "bracket" ||
+      style === "tag" ||
+      style === "lineEnd" ||
+      style === "inlayHint"
+        ? style
+        : "subtle",
+  };
+}
 
 /** 接続できなかった後、ホバーとインレイヒントのために接続し直すまでの間（ミリ秒） */
 const RETRY_AFTER_MS = 60_000;
@@ -81,6 +110,8 @@ export class SqlEditing implements vscode.Disposable {
   /** 接続の ID → ホバー・インレイヒントのために接続して失敗した時刻（しばらくは接続し直さない） */
   private readonly failedAt = new Map<string, number>();
   private readonly hintsChanged = new vscode.EventEmitter<void>();
+  /** 論理名を出し直すとき（接続した・一覧を捨てた・設定を変えた） */
+  readonly onDidChangeSymbols = this.hintsChanged.event;
   private readonly connectionChanged =
     new vscode.EventEmitter<vscode.TextDocument>();
   /** .sql の接続を選び直したとき（実行の結果のタブの接続も変える） */
@@ -124,24 +155,45 @@ export class SqlEditing implements vscode.Disposable {
         "sqlEditorTool.chooseSqlConnection",
         () => void this.choose(),
       ),
+      // 常に → カーソルのある行だけ → 出さない の順に切り替える
       vscode.commands.registerCommand(
         "sqlEditorTool.toggleLogicalNameHints",
         async () => {
-          const config = vscode.workspace.getConfiguration("sqlEditorTool");
-          const next = !config.get<boolean>(HINTS_SETTING, true);
-          await config.update(
-            HINTS_SETTING,
-            next,
-            vscode.ConfigurationTarget.Global,
-          );
+          const { show } = logicalNamePrefs();
+          const next: LogicalNameShow =
+            show === "always"
+              ? "cursorLine"
+              : show === "cursorLine"
+                ? "off"
+                : "always";
+          await vscode.workspace
+            .getConfiguration("sqlEditorTool")
+            .update(SHOW_SETTING, next, vscode.ConfigurationTarget.Global);
           void vscode.window.setStatusBarMessage(
-            next ? "論理名を表示します" : "論理名を表示しません",
-            3000,
+            next === "always"
+              ? "論理名：常に出します"
+              : next === "cursorLine"
+                ? "論理名：カーソルのある行だけに出します"
+                : "論理名：出しません（名前にカーソルを乗せると出ます）",
+            4000,
           );
         },
       ),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration(`sqlEditorTool.${HINTS_SETTING}`)) {
+        if (
+          event.affectsConfiguration(`sqlEditorTool.${SHOW_SETTING}`) ||
+          event.affectsConfiguration(`sqlEditorTool.${STYLE_SETTING}`)
+        ) {
+          this.hintsChanged.fire();
+        }
+      }),
+      // カーソルのある行だけに出すときは、カーソルが動いたら出し直す
+      vscode.window.onDidChangeTextEditorSelection((event) => {
+        if (
+          logicalNamePrefs().show === "cursorLine" &&
+          logicalNamePrefs().style === "inlayHint" &&
+          isSqlDocument(event.textEditor.document)
+        ) {
           this.hintsChanged.fire();
         }
       }),
@@ -325,37 +377,56 @@ export class SqlEditing implements vscode.Disposable {
     }
   }
 
-  /** 名前の後ろに論理名を出す（D-40）。別名が論理名と同じなら出さない */
-  private async inlayHints(
+  /**
+   * 範囲の中の名前のうち、論理名を出すもの（別名が論理名と同じものは除く）。
+   * 接続が決まっていない・接続できないときは空
+   */
+  async logicalNamesIn(
     document: vscode.TextDocument,
-    range: vscode.Range,
-    token: vscode.CancellationToken,
-  ): Promise<vscode.InlayHint[]> {
-    const enabled = vscode.workspace
-      .getConfiguration("sqlEditorTool")
-      .get<boolean>(HINTS_SETTING, true);
-    const source = enabled ? this.symbolSource(document) : null;
+    from: number,
+    to: number,
+  ): Promise<SqlSymbol[]> {
+    const source = this.symbolSource(document);
     if (!source) return [];
-    let symbols: SqlSymbol[];
     try {
-      symbols = await resolveSymbols({
+      const symbols = await resolveSymbols({
         dialect: source.dialect,
         text: document.getText(),
         cache: source.cache,
-        from: document.offsetAt(range.start),
-        to: document.offsetAt(range.end),
+        from,
+        to,
+      });
+      return symbols.filter((symbol) => {
+        const name = logicalNameOf(symbol);
+        return name !== undefined && symbol.alias !== name;
       });
     } catch {
       this.failedAt.set(source.id, Date.now());
       return [];
     }
+  }
+
+  /** 名前の後ろに論理名を出す（D-40）。見た目が VS Code のインレイヒントのときだけ（ほかは装飾で出す、D-42） */
+  private async inlayHints(
+    document: vscode.TextDocument,
+    range: vscode.Range,
+    token: vscode.CancellationToken,
+  ): Promise<vscode.InlayHint[]> {
+    const { show, style } = logicalNamePrefs();
+    if (show === "off" || style !== "inlayHint") return [];
+    const symbols = await this.logicalNamesIn(
+      document,
+      document.offsetAt(range.start),
+      document.offsetAt(range.end),
+    );
     if (token.isCancellationRequested) return [];
+    const lines = show === "cursorLine" ? cursorLines(document) : null;
     return symbols.flatMap((symbol) => {
-      const name = logicalNameOf(symbol);
-      if (!name || symbol.alias === name) return [];
+      const position = document.positionAt(symbol.end);
+      if (lines && !lines.has(position.line)) return [];
       const hint = new vscode.InlayHint(
-        document.positionAt(symbol.end),
-        shortLogicalName(name),
+        position,
+        shortLogicalName(logicalNameOf(symbol) ?? ""),
       );
       hint.paddingLeft = true;
       hint.tooltip = symbolMarkdown(symbol);
@@ -517,14 +588,24 @@ export function dialectOf(profile: ConnectionProfile | undefined): DialectName {
   return profile.driver === "demo" ? profile.dialect : profile.driver;
 }
 
-function logicalNameOf(symbol: SqlSymbol): string | undefined {
+/** 文書を開いているエディタの、カーソルのある行 */
+export function cursorLines(document: vscode.TextDocument): Set<number> {
+  const lines = new Set<number>();
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (editor.document !== document) continue;
+    for (const selection of editor.selections) lines.add(selection.active.line);
+  }
+  return lines;
+}
+
+export function logicalNameOf(symbol: SqlSymbol): string | undefined {
   return symbol.kind === "table"
     ? symbol.object.logicalName
     : symbol.column.logicalName;
 }
 
 /** ホバーとインレイヒントのツールチップ：論理名・物理名・型・コメント */
-function symbolMarkdown(symbol: SqlSymbol): vscode.MarkdownString {
+export function symbolMarkdown(symbol: SqlSymbol): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   const logical = logicalNameOf(symbol);
   if (symbol.kind === "table") {

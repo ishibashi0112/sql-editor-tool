@@ -178,7 +178,7 @@
       },
       {
         "command": "sqlEditorTool.toggleLogicalNameHints",
-        "title": "SQL の論理名の表示を切り替える",
+        "title": "SQL の論理名の表示を切り替える（常に／カーソルの行だけ／出さない）",
         "category": "SQL Editor Tool"
       }
     ],
@@ -368,11 +368,6 @@
           "default": "",
           "markdownDescription": "レポート（フォームつきの SQL、`.sql` ファイル）を保存するフォルダ。サイドバーの「レポート」に、このフォルダの中の `.sql` が並びます。空のときは、初めてレポートを作るときに選びます。"
         },
-        "sqlEditorTool.logicalNames.inlayHints": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "`.sql` で、テーブル名・列名の後ろに論理名（DB のコメント。SQL Server は拡張プロパティ `MS_Description`、Oracle は `COMMENT ON`）を薄く出します。VS Code の `editor.inlayHints.enabled` でも切り替えられます。"
-        },
         "sqlEditorTool.logicalNames.headers": {
           "type": "string",
           "enum": [
@@ -392,6 +387,40 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "`.sql` の文ごとに「▶ 実行」を出します（Ctrl+Enter でも実行できます）。"
+        },
+        "sqlEditorTool.logicalNames.show": {
+          "type": "string",
+          "enum": [
+            "always",
+            "cursorLine",
+            "off"
+          ],
+          "enumDescriptions": [
+            "常に出す",
+            "カーソルのある行だけに出す",
+            "出さない（名前にカーソルを乗せると出る）"
+          ],
+          "default": "always",
+          "markdownDescription": "`.sql` で、テーブル名・列名の後ろに論理名（DB のコメント。SQL Server は拡張プロパティ `MS_Description`、Oracle は `COMMENT ON`）を出すか。コマンド「SQL の論理名の表示を切り替える」でも切り替えられます。"
+        },
+        "sqlEditorTool.logicalNames.style": {
+          "type": "string",
+          "enum": [
+            "subtle",
+            "bracket",
+            "tag",
+            "lineEnd",
+            "inlayHint"
+          ],
+          "enumDescriptions": [
+            "薄い色・斜体・少し小さく",
+            "薄い色で ‹論理名› と括る",
+            "色の付いた小さなラベル",
+            "行の終わりにまとめる",
+            "VS Code のインレイヒント（0.8.0 の見た目）"
+          ],
+          "default": "subtle",
+          "markdownDescription": "`.sql` の論理名の見た目。色は `workbench.colorCustomizations` の `sqlEditorTool.logicalNameForeground` などで変えられます。"
         }
       }
     },
@@ -401,6 +430,38 @@
         "key": "ctrl+enter",
         "mac": "cmd+enter",
         "when": "editorTextFocus && (editorLangId == sql || resourceExtname =~ /^\\.sql$/i)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "sqlEditorTool.logicalNameForeground",
+        "description": ".sql の論理名の文字の色（薄い色・括弧・行末の見た目）",
+        "defaults": {
+          "dark": "#8b949e",
+          "light": "#6e7781",
+          "highContrast": "#c0c0c0",
+          "highContrastLight": "#4d4d4d"
+        }
+      },
+      {
+        "id": "sqlEditorTool.logicalNameTagForeground",
+        "description": ".sql の論理名のラベルの文字の色",
+        "defaults": {
+          "dark": "#9ecbff",
+          "light": "#0550ae",
+          "highContrast": "#ffffff",
+          "highContrastLight": "#0550ae"
+        }
+      },
+      {
+        "id": "sqlEditorTool.logicalNameTagBackground",
+        "description": ".sql の論理名のラベルの背景の色",
+        "defaults": {
+          "dark": "#1f6feb33",
+          "light": "#0969da14",
+          "highContrast": "#1f6feb66",
+          "highContrastLight": "#0969da26"
+        }
       }
     ]
   },
