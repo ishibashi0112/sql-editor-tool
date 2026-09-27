@@ -48,6 +48,8 @@ export type ConditionColumn = {
   logicalName?: string;
   /** 「文字 10」「数値」「日付」など */
   typeLabel: string;
+  /** 主キーの列か、主キーのない表で列の設定（D-36）でキーにした列か */
+  key?: "primary" | "settings";
 };
 
 export type ToCameraView =

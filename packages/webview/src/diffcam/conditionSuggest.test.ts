@@ -1,6 +1,11 @@
 import type { ConditionColumn } from "@sql-editor-tool/host";
 import { describe, expect, test } from "vitest";
-import { insertColumn, suggestColumns, wordBefore } from "./conditionSuggest";
+import {
+  insertAtCursor,
+  insertColumn,
+  suggestColumns,
+  wordBefore,
+} from "./conditionSuggest";
 
 // 架空の列
 const columns: ConditionColumn[] = [
@@ -58,5 +63,25 @@ describe("insertColumn", () => {
     });
     expect(insertColumn("oracle", "no", 0, 2, "Note").text).toBe('"Note"');
     expect(insertColumn("mssql", "no", 0, 2, "Note").text).toBe("Note");
+  });
+});
+
+describe("insertAtCursor", () => {
+  test("カーソルの位置に入れ、語や値に付くときは空白を挟む。範囲を選んでいれば置き換える", () => {
+    expect(insertAtCursor("mssql", "", 0, 0, "ORDER_YMD")).toEqual({
+      text: "ORDER_YMD",
+      caret: 9,
+    });
+    expect(insertAtCursor("mssql", "QTY > 0 AND", 11, 11, "CUST_CD")).toEqual({
+      text: "QTY > 0 AND CUST_CD",
+      caret: 19,
+    });
+    expect(insertAtCursor("mssql", "= '01'", 0, 0, "WH_CD")).toEqual({
+      text: "WH_CD = '01'",
+      caret: 5,
+    });
+    expect(insertAtCursor("mssql", "(QTY) = 1", 1, 4, "USER").text).toBe(
+      "([USER]) = 1",
+    );
   });
 });

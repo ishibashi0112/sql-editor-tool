@@ -47,6 +47,7 @@ export {
   SHEET_KIND_LABELS,
   type SheetRow,
   type SheetRowKind,
+  sheetColumnWidths,
   sheetHtml,
   sheetTsv,
   shownColumns,

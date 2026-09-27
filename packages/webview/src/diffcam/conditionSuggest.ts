@@ -76,3 +76,23 @@ export function insertColumn(
     caret: start + inserted.length,
   };
 }
+
+/**
+ * 一覧から選んだ列を、カーソルの位置に入れる（範囲を選んでいれば置き換える）。
+ * 前後が語や値に付いてしまうときは、空白を挟む
+ */
+export function insertAtCursor(
+  dialect: DialectName,
+  text: string,
+  start: number,
+  end: number,
+  name: string,
+): { text: string; caret: number } {
+  const inserted = completionIdentifier(getDialect(dialect), name);
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const lead = before !== "" && !/[\s(]$/u.test(before) ? " " : "";
+  const trail = after !== "" && !/^[\s),]/u.test(after) ? " " : "";
+  const head = before + lead + inserted;
+  return { text: head + trail + after, caret: head.length };
+}

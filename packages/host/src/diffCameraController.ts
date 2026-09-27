@@ -102,7 +102,10 @@ export class DiffCameraController {
   /** カメラの ID → 比べた回の数（記録から消えても数える） */
   private readonly seqs = new Map<string, number>();
   /** 「接続\0スキーマ\0表」→ 列（条件の入力欄の候補） */
-  private readonly columnCache = new Map<string, ColumnInfo[]>();
+  private readonly columnCache = new Map<
+    string,
+    { columns: ColumnInfo[]; primaryKey: string[] }
+  >();
   private readonly busy = new Map<string, Busy>();
 
   constructor(private readonly deps: DiffCameraDeps) {
@@ -237,22 +240,33 @@ export class DiffCameraController {
     if (!camera || !table) return;
     const cacheKey = [camera.connection, table.schema, table.name].join("\0");
     try {
-      let columns = this.columnCache.get(cacheKey);
-      if (!columns) {
+      let description = this.columnCache.get(cacheKey);
+      if (!description) {
         const { session } = await this.deps.openSession(camera.connection);
-        columns = (
-          await session.describeTable({
-            schema: table.schema,
-            name: table.name,
-          })
-        ).columns;
-        this.columnCache.set(cacheKey, columns);
+        const { columns, primaryKey } = await session.describeTable({
+          schema: table.schema,
+          name: table.name,
+        });
+        description = { columns, primaryKey: [...primaryKey] };
+        this.columnCache.set(cacheKey, description);
       }
+      const { columns, primaryKey } = description;
+      // 主キーがなければ、差分と同じく列の設定のキー
+      const settingsKey =
+        primaryKey.length > 0
+          ? []
+          : (this.deps.keyColumns?.(camera.connection, table) ?? []);
+      const keyOf = (name: string): ConditionColumn["key"] =>
+        primaryKey.includes(name)
+          ? "primary"
+          : settingsKey.includes(name)
+            ? "settings"
+            : undefined;
       this.deps.postView({
         type: "columns",
         id,
         index,
-        columns: columns.map(conditionColumn),
+        columns: columns.map((c) => conditionColumn(c, keyOf(c.name))),
       });
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
@@ -535,11 +549,15 @@ export class DiffCameraController {
   }
 }
 
-function conditionColumn(column: ColumnInfo): ConditionColumn {
+function conditionColumn(
+  column: ColumnInfo,
+  key: ConditionColumn["key"],
+): ConditionColumn {
   return {
     name: column.name,
     ...(column.logicalName ? { logicalName: column.logicalName } : {}),
     typeLabel: typeLabel(column),
+    ...(key ? { key } : {}),
   };
 }
 

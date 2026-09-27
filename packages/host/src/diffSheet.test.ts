@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { DiffTableView, DiffView } from "./diffCameraProtocol";
-import { diffSheet, sheetHtml, sheetTsv, shownColumns } from "./diffSheet";
+import {
+  diffSheet,
+  sheetColumnWidths,
+  sheetHtml,
+  sheetTsv,
+  shownColumns,
+} from "./diffSheet";
 
 // 架空の表
 const orders: DiffTableView = {
@@ -134,16 +140,32 @@ describe("sheetTsv と sheetHtml", () => {
   test("HTML：文字は文字のまま貼る（00123 を数値にしない）、色、エスケープ、セルの中の改行", () => {
     const html = sheetHtml(rows);
     expect(html).toContain(
-      `<td style="border:.5pt solid #D9D9D9;background:#E2EFDA;mso-number-format:'\\@'">00123</td>`,
+      `<td style="white-space:nowrap;border:.5pt solid #D9D9D9;background:#E2EFDA;mso-number-format:'\\@'">00123</td>`,
     );
     // 変わったセル（変更後）は黄色で太字、数値はそのまま
     expect(html).toContain(
-      '<td style="border:.5pt solid #D9D9D9;background:#FFF2CC;font-weight:bold">99</td>',
+      '<td style="white-space:nowrap;border:.5pt solid #D9D9D9;background:#FFF2CC;font-weight:bold">99</td>',
     );
     expect(html).toContain(
       'a\tb<br style="mso-data-placement:same-cell">&lt;c&gt;',
     );
     expect(html).toContain(">NULL</td>");
     expect(html.startsWith('<meta charset="utf-8"><table')).toBe(true);
+  });
+
+  test("Excel に貼ったときに折り返さない：どのセルも nowrap、列の幅は表の中の値で測る", () => {
+    const html = sheetHtml(rows);
+    // 見出しの長い文（1 列目）も折り返さない
+    expect(html).toContain(
+      '<td style="white-space:nowrap;font-weight:bold;font-size:12pt;',
+    );
+    expect(html.match(/<td /g)?.length).toBe(
+      html.match(/<td style="white-space:nowrap;/g)?.length,
+    );
+    // 区分・ORDER_NO・CUST_CD（00123）・QTY・NOTE（a\tb）。見出しの長い文は測らない。8〜60 文字
+    expect(sheetColumnWidths(rows)).toEqual([8, 10, 9, 8, 8]);
+    expect(html).toContain(
+      '<colgroup><col width="70" style="width:53pt"><col width="85" style="width:64pt">',
+    );
   });
 });

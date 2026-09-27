@@ -341,8 +341,18 @@ describe("DiffCameraController", () => {
       id: "cam1",
       index: 0,
       columns: [
-        { name: "ITEM_CD", logicalName: "品目コード", typeLabel: "文字 10" },
-        { name: "WH_CD", logicalName: "倉庫", typeLabel: "文字 10" },
+        {
+          name: "ITEM_CD",
+          logicalName: "品目コード",
+          typeLabel: "文字 10",
+          key: "primary",
+        },
+        {
+          name: "WH_CD",
+          logicalName: "倉庫",
+          typeLabel: "文字 10",
+          key: "primary",
+        },
         { name: "QTY", logicalName: "在庫数", typeLabel: "文字 10" },
       ],
     });

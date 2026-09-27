@@ -198,19 +198,59 @@ function tsvCell(value: CellValue): string {
   return /[\t\r\n"]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-/** 色の付いた HTML の表（Excel に貼ると、色と罫線も付く）。文字の値は文字のまま貼られるようにする */
+/**
+ * 色の付いた HTML の表（Excel に貼ると、色と罫線も付く）。文字の値は文字のまま貼られるようにする。
+ * Excel は HTML のセルを「折り返して全体を表示」で貼るので、折り返さない指定と列の幅を付ける
+ * （付けないと、見出しの長い文が狭い A 列で何行にも折り返される）
+ */
 export function sheetHtml(rows: readonly SheetRow[]): string {
+  const cols = sheetColumnWidths(rows)
+    .map((chars) => {
+      const px = Math.round(chars * 7.5 + 10);
+      return `<col width="${px}" style="width:${Math.round(px * 0.75)}pt">`;
+    })
+    .join("");
   const body = rows
     .map((row) => {
       const cells = row.cells.map((value, i) => {
         const style = cellStyle(row, i, value);
         const text = value === null ? "NULL" : String(value);
-        return `<td${style ? ` style="${style}"` : ""}>${escapeHtml(text)}</td>`;
+        return `<td style="${style}">${escapeHtml(text)}</td>`;
       });
       return `<tr>${cells.join("")}</tr>`;
     })
     .join("\n");
-  return `<meta charset="utf-8"><table style="border-collapse:collapse;font-family:'Yu Gothic UI','Meiryo UI',sans-serif;font-size:10pt">\n${body}\n</table>`;
+  return `<meta charset="utf-8"><table style="border-collapse:collapse;font-family:'游ゴシック','Yu Gothic',sans-serif;font-size:11pt">\n<colgroup>${cols}</colgroup>\n${body}\n</table>`;
+}
+
+/**
+ * 列の幅（文字数。全角は 2）。表の中の行（列見出しと値）だけで測り、8〜60 に収める。
+ * 見出しや断りの長い文は、隣の空いたセルにはみ出して見える
+ */
+export function sheetColumnWidths(rows: readonly SheetRow[]): number[] {
+  const widths: number[] = [];
+  for (const row of rows) {
+    if (!isGridRow(row.kind)) continue;
+    row.cells.forEach((value, i) => {
+      const text = value === null ? "NULL" : String(value);
+      widths[i] = Math.max(widths[i] ?? 0, displayWidth(text));
+    });
+  }
+  return Array.from(widths, (w) => Math.min(Math.max((w ?? 0) + 2, 8), 60));
+}
+
+/** 表示の幅（全角は 2。改行があれば 1 行目） */
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const ch of text.split("\n")[0] ?? "") {
+    width +=
+      /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u.test(
+        ch,
+      )
+        ? 2
+        : 1;
+  }
+  return width;
 }
 
 /** 色（Excel の保存にも使う。先頭の # なしの RGB） */
@@ -243,8 +283,9 @@ export function isGridRow(kind: SheetRowKind): boolean {
 
 function cellStyle(row: SheetRow, index: number, value: CellValue): string {
   const c = SHEET_COLORS;
-  const styles: string[] = [];
   const grid = isGridRow(row.kind);
+  // 貼ったときに折り返さない
+  const styles: string[] = ["white-space:nowrap"];
   if (grid) styles.push(`border:.5pt solid #${c.border}`);
   switch (row.kind) {
     case "title":

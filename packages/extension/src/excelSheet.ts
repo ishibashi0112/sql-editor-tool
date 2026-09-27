@@ -1,7 +1,12 @@
 // 差分カメラの「Excel で保存」（D-48）。host の diffSheet の行を、色と罫線の付いた .xlsx にする。
 // exceljs は大きいので、保存するときに初めて読み込む
 
-import { isGridRow, SHEET_COLORS, type SheetRow } from "@sql-editor-tool/host";
+import {
+  isGridRow,
+  SHEET_COLORS,
+  type SheetRow,
+  sheetColumnWidths,
+} from "@sql-editor-tool/host";
 import type { Cell } from "exceljs";
 
 const FONT = "游ゴシック";
@@ -14,7 +19,6 @@ export async function sheetXlsx(
   const workbook = new Excel.Workbook();
   workbook.creator = "SQL Editor Tool";
   const sheet = workbook.addWorksheet(sheetName);
-  const widths: number[] = [];
   rows.forEach((row, r) => {
     const excelRow = sheet.getRow(r + 1);
     const grid = isGridRow(row.kind);
@@ -22,14 +26,10 @@ export async function sheetXlsx(
       const cell = excelRow.getCell(c + 1);
       cell.value = value === null ? (grid ? "NULL" : null) : value;
       styleCell(cell, row, c, value === null);
-      if (grid) {
-        const text = value === null ? "NULL" : String(value);
-        widths[c] = Math.max(widths[c] ?? 0, displayWidth(text));
-      }
     });
   });
-  widths.forEach((width, c) => {
-    sheet.getColumn(c + 1).width = Math.min(Math.max(width + 2, 8), 60);
+  sheetColumnWidths(rows).forEach((width, c) => {
+    sheet.getColumn(c + 1).width = width;
   });
   return new Uint8Array(await workbook.xlsx.writeBuffer());
 }
@@ -107,13 +107,4 @@ function styleCell(
     cell.border = { top: side, left: side, bottom: side, right: side };
     cell.alignment = { vertical: "top", wrapText: false };
   }
-}
-
-/** 列の幅の目安（全角は 2） */
-function displayWidth(text: string): number {
-  let width = 0;
-  for (const ch of text.split("\n")[0] ?? "") {
-    width += /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1;
-  }
-  return width;
 }
