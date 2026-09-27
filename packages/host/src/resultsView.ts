@@ -151,6 +151,8 @@ export class ResultsController {
         await tab.controller.handle(message.message);
         if (message.message.type === "ready" && tab.pending) {
           tab.pending = false;
+          // その間に実行し直して、タブを閉じていたら実行しない
+          if (!this.tabs.includes(tab)) return;
           // 値がそろっていなければ、入力欄にカーソルを置いてもらう
           const missing = await tab.controller.executeIfReady();
           if (missing !== null) this.deps.focus();

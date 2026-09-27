@@ -62,6 +62,7 @@ export class ResultsPanel
   });
   private readonly disposables: vscode.Disposable[] = [];
   private saveValuesTimer: ReturnType<typeof setTimeout> | undefined;
+  private flashTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly deps: ResultsPanelDeps) {
     this.controller = new ResultsController({
@@ -162,6 +163,7 @@ export class ResultsPanel
 
   dispose(): void {
     clearTimeout(this.saveValuesTimer);
+    clearTimeout(this.flashTimer);
     this.controller.dispose();
     for (const d of [...this.viewDisposables, ...this.disposables]) d.dispose();
   }
@@ -252,7 +254,12 @@ export class ResultsPanel
           ),
       ),
     );
-    setTimeout(() => editor.setDecorations(this.flash, []), 700);
+    // 続けて実行したときに、前の実行の消す時刻で消さないように
+    clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(
+      () => editor.setDecorations(this.flash, []),
+      700,
+    );
   }
 
   private profileOf(source: string): ConnectionProfile | undefined {
