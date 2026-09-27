@@ -179,11 +179,38 @@ SELECT * FROM t WHERE a = :x ORDER BY a;
     expect(q.sql).toBe("SELECT * FROM t WHERE a = @p1 ORDER BY a");
   });
 
-  test(":名前 以外のバインド変数と、読み取り専用でない文は使えない", () => {
+  test("SQL Server は @名前 も入力欄（:名前 と同じ名前なら同じ値）。@@ROWCOUNT などは変数ではない", () => {
+    const text =
+      "SELECT @@ROWCOUNT AS n, '@x' AS s FROM t WHERE a >= @開始日 AND b = :得意先 AND c = @得意先";
+    expect(reportParams("mssql", text, {}).map((p) => p.name)).toEqual([
+      "開始日",
+      "得意先",
+    ]);
+    const q = buildReportQuery({
+      dialect: "mssql",
+      sql: text,
+      config: {},
+      values: { 開始日: "20260901", 得意先: "C001" },
+    });
+    expect(q.sql).toBe(
+      "SELECT @@ROWCOUNT AS n, '@x' AS s FROM t WHERE a >= @p1 AND b = @p2 AND c = @p3",
+    );
+    expect(q.params.map((p) => p.value)).toEqual(["20260901", "C001", "C001"]);
+    expect(q.literalSql).toBe(
+      "SELECT @@ROWCOUNT AS n, '@x' AS s FROM t WHERE a >= N'20260901' AND b = N'C001' AND c = N'C001'",
+    );
+  });
+
+  test("Oracle の :1 などのバインド変数と、読み取り専用でない文は使えない", () => {
     const build = (text: string) =>
-      buildReportQuery({ dialect: "mssql", sql: text, config: {}, values: {} });
-    expect(() => build("SELECT * FROM t WHERE a = @a")).toThrow(
-      "「:名前」の形で書いてください",
+      buildReportQuery({
+        dialect: "oracle",
+        sql: text,
+        config: {},
+        values: {},
+      });
+    expect(() => build("SELECT * FROM t WHERE a = :1")).toThrow(
+      "「:名前」（SQL Server は「@名前」も）の形で書いてください",
     );
     expect(() => build("DELETE FROM t")).toThrow("SELECT か WITH");
     expect(() => build("SELECT * INTO w FROM t")).toThrow("INTO");
@@ -358,6 +385,22 @@ describe("入力欄の種類の推定（D-35）", () => {
       sql: `SELECT * FROM 受注
 WHERE 受注日 >= @p1
   AND (@p2 IS NULL OR 得意先コード = @p3)`,
+      occurrences: [
+        { placeholder: "p1", name: "開始日", nullCheck: false },
+        { placeholder: "p2", name: "得意先", nullCheck: true },
+        { placeholder: "p3", name: "得意先", nullCheck: false },
+      ],
+    });
+  });
+
+  test("@名前 も同じく推定する（SQL Server、D-43）", () => {
+    expect(
+      reportParamProbe(
+        "mssql",
+        "SELECT * FROM 受注 WHERE 受注日 >= @開始日 AND (@得意先 IS NULL OR 得意先コード = @得意先)",
+      ),
+    ).toEqual({
+      sql: "SELECT * FROM 受注 WHERE 受注日 >= @p1 AND (@p2 IS NULL OR 得意先コード = @p3)",
       occurrences: [
         { placeholder: "p1", name: "開始日", nullCheck: false },
         { placeholder: "p2", name: "得意先", nullCheck: true },
