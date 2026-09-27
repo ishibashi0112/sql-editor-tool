@@ -6,6 +6,7 @@ import type {
   ColumnType,
   DbParamGuess,
   DialectName,
+  LogicalName,
   QuerySource,
   ReportParamProbe,
   SortEntry,
@@ -19,7 +20,8 @@ import type {
  */
 export type CellValue = string | number | boolean | null;
 
-export type DbObject = { name: string; kind: "table" | "view" };
+/** テーブル・ビュー。論理名とコメントは DB のコメントから取る（D-40） */
+export type DbObject = LogicalName & { name: string; kind: "table" | "view" };
 
 /** スキーマつきのテーブル／ビュー（テーブル検索で使う） */
 export type SchemaObject = DbObject & { schema: string };

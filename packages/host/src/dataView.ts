@@ -38,6 +38,8 @@ export type DataViewSettings = {
 export type DataViewDeps = {
   session: DbSession;
   table: TableRef;
+  /** テーブルの論理名（D-40。テーブルの一覧から分かっていれば） */
+  logicalName?: string | undefined;
   settings: DataViewSettings;
   demo: boolean;
   post(message: ToWebview): void;
@@ -79,6 +81,9 @@ export class DataViewController {
     switch (message.type) {
       case "ready":
         return this.init();
+      // 列見出しの表示は拡張（パネル）が設定に書く
+      case "setHeaderMode":
+        return;
       case "conditionsChanged":
         this.filters = message.filters;
         this.sort = message.sort;
@@ -152,6 +157,7 @@ export class DataViewController {
     const candidates = ymdCandidates(this.columns);
     const view: ViewInit = {
       title: `${table.schema}.${table.name}`,
+      logicalName: this.deps.logicalName,
       dialect: session.dialect,
       columns: this.columns,
       maxRows: settings.maxRows,

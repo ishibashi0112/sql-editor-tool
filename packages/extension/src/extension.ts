@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { ConnectionStore, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
+import { LogicalNameDecorations } from "./logicalNameDecorations";
 import { ReportPanels } from "./reportPanel";
 import {
   chooseReportsFolder,
@@ -12,6 +13,7 @@ import {
   reportsFolder,
 } from "./reports";
 import { type ReportNode, ReportTree } from "./reportTree";
+import { RESULTS_VIEW_ID, ResultsPanel } from "./resultsPanel";
 import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
 import { SqlEditing } from "./sqlEditing";
@@ -27,14 +29,23 @@ export function activate(context: vscode.ExtensionContext): void {
   const search = new TableSearchView(context.extensionUri, store, manager);
   const recent = new RecentReports(context.globalState);
   const reportTree = new ReportTree();
+  const editing = new SqlEditing(store, manager, context.globalState);
   const reports = new ReportPanels({
     extensionUri: context.extensionUri,
     store,
     sessions: manager,
     recent,
     state: context.globalState,
+    editing,
   });
-  const editing = new SqlEditing(store, manager, context.globalState);
+  // .sql の実行と「SQL の結果」のパネル（D-41）
+  const results = new ResultsPanel({
+    extensionUri: context.extensionUri,
+    store,
+    sessions: manager,
+    editing,
+    state: context.globalState,
+  });
   const openReport = (uri: vscode.Uri) =>
     reports.open(uri).catch((error: unknown) => {
       void vscode.window.showErrorMessage(
@@ -46,12 +57,19 @@ export function activate(context: vscode.ExtensionContext): void {
     store,
     manager,
     editing,
+    // .sql の論理名の見た目（D-42）
+    new LogicalNameDecorations(editing),
     vscode.window.createTreeView("sqlEditorTool.connections", {
       treeDataProvider: tree,
       showCollapseAll: true,
     }),
     vscode.window.registerWebviewViewProvider("sqlEditorTool.search", search, {
       // 入力中の文字と結果を、サイドバーを切り替えても保つ
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    results,
+    vscode.window.registerWebviewViewProvider(RESULTS_VIEW_ID, results, {
+      // 取得した行を、ターミナルなどに切り替えても保つ
       webviewOptions: { retainContextWhenHidden: true },
     }),
     reportTree,
@@ -121,6 +139,7 @@ export function activate(context: vscode.ExtensionContext): void {
             connectionName: node.profile.name,
             session,
             table: node.table,
+            logicalName: node.logicalName,
             demo: node.profile.driver === "demo",
             state: context.globalState,
           });

@@ -7,9 +7,19 @@ import {
   SpreadsheetGrid,
 } from "@ishibashi0112/spreadsheet-grid";
 import type { SortEntry } from "@sql-editor-tool/core";
-import type { SqlPreview, ToWebview, ViewColumn } from "@sql-editor-tool/host";
+import type {
+  HeaderMode,
+  SqlPreview,
+  ToWebview,
+  ViewColumn,
+} from "@sql-editor-tool/host";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { type Row, toGridColumns } from "./gridColumns";
+import {
+  type Row,
+  TWO_LINE_HEADER_HEIGHT,
+  toGridColumns,
+  twoLineHeader,
+} from "./gridColumns";
 import { useVsCodeTheme } from "./theme";
 import { type Filters, widenedColumns } from "./widened";
 
@@ -152,6 +162,8 @@ export type ResultPaneProps = {
   idleText: string;
   /** 案内の上に出すもの（デモ接続の説明など） */
   notice?: ReactNode;
+  /** 列見出しに出す名前（D-40） */
+  headerMode: HeaderMode;
 };
 
 export function ResultPane(props: ResultPaneProps) {
@@ -183,7 +195,12 @@ export function ResultPane(props: ResultPaneProps) {
     [onConditions, filters],
   );
 
-  const columns = useMemo(() => toGridColumns(props.columns), [props.columns]);
+  const { headerMode } = props;
+  const columns = useMemo(
+    () => toGridColumns(props.columns, headerMode),
+    [props.columns, headerMode],
+  );
+  const twoLines = twoLineHeader(props.columns, headerMode);
   const truncated = query.status === "done" && query.truncated;
   const widened = widenedColumns(props.fetchedFilters, filters);
 
@@ -222,6 +239,7 @@ export function ResultPane(props: ResultPaneProps) {
           height="100%"
           theme={theme}
           density="compact"
+          {...(twoLines ? { headerHeight: TWO_LINE_HEADER_HEIGHT } : {})}
           readOnly
           // 取得中は並べ替えない（行が届くたびに並びが変わるため）
           enableSorting={!running}

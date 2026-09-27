@@ -128,12 +128,14 @@ export class TableSearchView implements vscode.WebviewViewProvider {
       case "open": {
         const profile = this.store.get(message.connectionId);
         if (!profile) return;
-        const { schema, name, kind } = message.object;
+        const { schema, name, kind, logicalName, comment } = message.object;
         const node: TreeNode = {
           kind: "object",
           profile,
           table: { schema, name },
           objectKind: kind,
+          logicalName,
+          comment,
         };
         void vscode.commands.executeCommand("sqlEditorTool.openTable", node);
         return;

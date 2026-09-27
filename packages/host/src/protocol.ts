@@ -14,9 +14,23 @@ export type ViewColumn = ColumnInfo & {
   isKey: boolean;
 };
 
+/**
+ * 列見出しに出す名前（D-40）。both は物理名の下に論理名、logical は論理名、physical は物理名だけ。
+ * VS Code の設定（sqlEditorTool.logicalNames.headers）に持ち、すべての画面で同じにする
+ */
+export type HeaderMode = "both" | "logical" | "physical";
+
+/** 画面の表示の設定（拡張 → 画面。開いたときと、設定が変わったときに送る） */
+export type PrefsMessage = { type: "prefs"; headerMode: HeaderMode };
+
+/** 画面で列見出しの表示を切り替えた（画面 → 拡張。拡張が設定に書く） */
+export type SetHeaderModeMessage = { type: "setHeaderMode"; mode: HeaderMode };
+
 export type ViewInit = {
   /** タブと画面上部に出す名前（例：APP.ORDERS） */
   title: string;
+  /** テーブルの論理名（D-40）。あれば名前の横に出す */
+  logicalName?: string | undefined;
   dialect: DialectName;
   columns: ViewColumn[];
   /** 取得の上限（D-11） */
@@ -39,6 +53,7 @@ export type SqlPreview =
 
 export type ToWebview =
   | { type: "init"; view: ViewInit }
+  | PrefsMessage
   | { type: "initFailed"; message: string }
   | { type: "preview"; preview: SqlPreview }
   | {
@@ -65,6 +80,7 @@ export type ToWebview =
 
 export type FromWebview =
   | { type: "ready" }
+  | SetHeaderModeMessage
   | {
       type: "conditionsChanged";
       filters: Record<string, ColumnFilterValue>;

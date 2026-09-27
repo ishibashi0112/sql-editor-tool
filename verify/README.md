@@ -42,6 +42,13 @@ node oracle-run.mjs sql/oracle/manual/string_date_format.sql
 node mssql-run.mjs sql/mssql/manual/string_date_format.sql
 ```
 
+論理名（D-40）の確認用に、`05_comments.sql` でテーブル・列のコメント（SQL Server は拡張プロパティ、Oracle は `COMMENT ON`）の件数と、区切り（`:`・タブ・改行）の使い方を数えます（O-16）。コメントの中身は出しません。個別に実行するときは次のとおりです。
+
+```
+node mssql-run.mjs sql/mssql/05_comments.sql
+node oracle-run.mjs sql/oracle/05_comments.sql
+```
+
 結果は画面に先頭50行が表示され、全件が `out/` にCSV（Excelで開けるBOM付きUTF-8）で保存されます。
 
 ## 安全のための仕組み

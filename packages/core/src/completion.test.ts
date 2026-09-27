@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
   completionContext,
   completionIdentifier,
+  splitStatements,
   sqlKeywords,
+  sqlOutline,
+  statementAt,
   tableReferences,
 } from "./completion";
 import { mssql, oracle } from "./dialect";
@@ -168,5 +171,158 @@ describe("sqlKeywords", () => {
     expect(sqlKeywords(mssql)).not.toContain("NVL");
     expect(sqlKeywords(oracle)).toContain("NVL");
     expect(sqlKeywords(oracle)).toContain("SELECT");
+  });
+});
+
+/** 文の本文の一覧 */
+const statements = (text: string, dialect = mssql) =>
+  splitStatements(dialect, text).map((s) => text.slice(s.start, s.end));
+
+describe("splitStatements", () => {
+  test("; と、SQL Server の GO だけの行で分ける。空の文とコメントだけの文は除く", () => {
+    expect(
+      statements(`-- 受注
+SELECT * FROM 受注;
+;
+SELECT 'a;b' FROM 得意先 -- ; はコメント
+GO
+/* 品目 */
+SELECT * FROM 品目`),
+    ).toEqual([
+      "SELECT * FROM 受注",
+      "SELECT 'a;b' FROM 得意先",
+      "SELECT * FROM 品目",
+    ]);
+  });
+
+  test("Oracle は / だけの行でも分ける（割り算の / では分けない）", () => {
+    expect(
+      statements("SELECT 数量 / 2 FROM 受注\n/\nSELECT * FROM 得意先", oracle),
+    ).toEqual(["SELECT 数量 / 2 FROM 受注", "SELECT * FROM 得意先"]);
+  });
+
+  test("; なしで並べた問い合わせも分ける", () => {
+    expect(
+      statements(`SELECT * FROM 受注 WHERE 区分 IN ('1', '2')
+
+SELECT * FROM 得意先
+WITH w AS (SELECT 1 AS x) SELECT * FROM w`),
+    ).toEqual([
+      "SELECT * FROM 受注 WHERE 区分 IN ('1', '2')",
+      "SELECT * FROM 得意先",
+      "WITH w AS (SELECT 1 AS x) SELECT * FROM w",
+    ]);
+  });
+
+  test("1 つの問い合わせの中の SELECT では分けない", () => {
+    const one = [
+      "SELECT a FROM x\nUNION ALL\n\nSELECT a FROM y",
+      "SELECT a FROM x UNION SELECT a FROM y EXCEPT SELECT a FROM z",
+      "WITH w AS (SELECT 1 AS x),\nv (y) AS (SELECT 2)\n\nSELECT * FROM w, v",
+      "SELECT * FROM (SELECT 1 AS a) t WHERE EXISTS (SELECT 1 FROM y)",
+      "SELECT * FROM 受注 j WITH (NOLOCK)",
+      "SELECT TOP (5) WITH TIES * FROM 受注 ORDER BY 数量",
+      "SELECT * FROM 組織 START WITH 親 IS NULL CONNECT BY PRIOR コード = 親",
+    ];
+    for (const text of one) {
+      expect(statements(text, oracle)).toEqual([text]);
+      expect(statements(text)).toEqual([text]);
+    }
+  });
+
+  test("問い合わせ以外（INSERT ... SELECT など）の途中では分けない", () => {
+    const text = "INSERT INTO x (a)\nSELECT a FROM y";
+    expect(statements(text)).toEqual([text]);
+  });
+
+  test("書きかけ（閉じていない括弧・文字列）でも例外にしない", () => {
+    expect(statements("SELECT * FROM (SELECT")).toEqual([
+      "SELECT * FROM (SELECT",
+    ]);
+    expect(statements("SELECT 'abc")).toEqual(["SELECT"]);
+  });
+});
+
+describe("statementAt", () => {
+  const text = "SELECT 1;\n\nSELECT 2\n\n-- 次\nSELECT 3";
+  const list = splitStatements(mssql, text);
+  const at = (offset: number) => {
+    const s = statementAt(list, offset);
+    return s ? text.slice(s.start, s.end) : null;
+  };
+  test("文の中か、文の後ろ（次の文の前まで）ならその文", () => {
+    expect(at(0)).toBe("SELECT 1");
+    expect(at(text.indexOf("1;") + 1)).toBe("SELECT 1");
+    expect(at(text.indexOf("1;") + 2)).toBe("SELECT 1");
+    expect(at(text.indexOf("SELECT 2") + 3)).toBe("SELECT 2");
+    expect(at(text.indexOf("-- 次"))).toBe("SELECT 2");
+    expect(at(text.length)).toBe("SELECT 3");
+  });
+
+  test("文がなければ undefined。最初の文より前なら最初の文", () => {
+    expect(statementAt([], 0)).toBeUndefined();
+    expect(statementAt(splitStatements(mssql, "  SELECT 1"), 0)).toEqual({
+      start: 2,
+      end: 10,
+    });
+  });
+});
+
+describe("sqlOutline", () => {
+  const names = (text: string, dialect = mssql) =>
+    sqlOutline(dialect, text).names.map((n) => ({
+      parts: n.parts.map((p) => p.name).join("."),
+      table: n.table,
+      statement: n.statement,
+      alias: n.alias,
+    }));
+
+  test("テーブル名と列の名前を、文ごとに返す（キーワード・別名の定義・関数は除く）", () => {
+    const text = `SELECT j.受注番号, 数量 AS 数, COUNT(*) AS 件数, dbo.fn(j.区分)
+FROM dbo.受注 AS j
+JOIN 得意先 t ON t.得意先コード = j.得意先コード
+WHERE j.受注日 >= :開始日 AND @x = 1;
+SELECT 品目名 名前 FROM 品目`;
+    expect(names(text)).toEqual([
+      { parts: "j.受注番号", table: false, statement: 0, alias: null },
+      { parts: "数量", table: false, statement: 0, alias: "数" },
+      { parts: "j.区分", table: false, statement: 0, alias: null },
+      { parts: "dbo.受注", table: true, statement: 0, alias: "j" },
+      { parts: "得意先", table: true, statement: 0, alias: "t" },
+      { parts: "t.得意先コード", table: false, statement: 0, alias: null },
+      { parts: "j.得意先コード", table: false, statement: 0, alias: null },
+      { parts: "j.受注日", table: false, statement: 0, alias: null },
+      { parts: "品目名", table: false, statement: 1, alias: "名前" },
+      { parts: "品目", table: true, statement: 1, alias: null },
+    ]);
+    const outline = sqlOutline(mssql, text);
+    expect(outline.statements.map((s) => s.tables)).toEqual([
+      [
+        { schema: "dbo", name: "受注", alias: "j", cte: false },
+        { schema: null, name: "得意先", alias: "t", cte: false },
+      ],
+      [{ schema: null, name: "品目", alias: null, cte: false }],
+    ]);
+  });
+
+  test("名前の位置は引用符も含めた字句の位置。WITH の名前は列として扱わない", () => {
+    const text =
+      'WITH w AS (SELECT "受注日" FROM "受注") SELECT w."受注日" FROM w';
+    const outline = sqlOutline(oracle, text);
+    const quoted = outline.names[0]?.parts[0];
+    expect(quoted?.name).toBe("受注日");
+    expect(text.slice(quoted?.start, quoted?.end)).toBe('"受注日"');
+    expect(names(text, oracle)).toEqual([
+      { parts: "受注日", table: false, statement: 0, alias: null },
+      { parts: "受注", table: true, statement: 0, alias: null },
+      { parts: "w.受注日", table: false, statement: 0, alias: null },
+      { parts: "w", table: true, statement: 0, alias: null },
+    ]);
+  });
+
+  test("文字列・コメントの中の名前は含めない", () => {
+    expect(
+      names("SELECT '受注.数量' /* 得意先.名前 */ FROM 受注 -- 品目"),
+    ).toEqual([{ parts: "受注", table: true, statement: 0, alias: null }]);
   });
 });

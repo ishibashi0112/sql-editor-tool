@@ -1,8 +1,8 @@
 {
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
-  "description": "社内 DB（SQL Server / Oracle）を、列見出しのフィルタで絞り込んで見る読み取り専用のツール",
-  "version": "0.7.2",
+  "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
+  "version": "0.8.1",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -28,6 +28,13 @@
           "title": "SQL Editor Tool",
           "icon": "media/icon.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "sqlEditorToolResults",
+          "title": "SQL の結果",
+          "icon": "media/icon.svg"
+        }
       ]
     },
     "views": {
@@ -48,6 +55,13 @@
           "name": "レポート",
           "initialSize": 1
         }
+      ],
+      "sqlEditorToolResults": [
+        {
+          "type": "webview",
+          "id": "sqlEditorTool.results",
+          "name": "SQL の結果"
+        }
       ]
     },
     "viewsWelcome": [
@@ -67,6 +81,17 @@
       }
     ],
     "commands": [
+      {
+        "command": "sqlEditorTool.runSql",
+        "title": "SQL を実行",
+        "category": "SQL Editor Tool",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sqlEditorTool.runStatementAt",
+        "title": "この文を実行",
+        "category": "SQL Editor Tool"
+      },
       {
         "command": "sqlEditorTool.addConnection",
         "title": "接続を追加",
@@ -150,6 +175,11 @@
         "title": "SQL の補完に使う接続を選ぶ",
         "category": "SQL Editor Tool",
         "icon": "$(database)"
+      },
+      {
+        "command": "sqlEditorTool.toggleLogicalNameHints",
+        "title": "SQL の論理名の表示を切り替える（常に／カーソルの行だけ／出さない）",
+        "category": "SQL Editor Tool"
       }
     ],
     "menus": {
@@ -252,13 +282,26 @@
         {
           "command": "sqlEditorTool.chooseSqlConnection",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i"
+        },
+        {
+          "command": "sqlEditorTool.runSql",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i"
+        },
+        {
+          "command": "sqlEditorTool.runStatementAt",
+          "when": "false"
         }
       ],
       "editor/title": [
         {
+          "command": "sqlEditorTool.runSql",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "navigation@1"
+        },
+        {
           "command": "sqlEditorTool.openReport",
           "when": "resourceExtname == .sql",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "explorer/context": [
@@ -266,6 +309,13 @@
           "command": "sqlEditorTool.openReport",
           "when": "resourceExtname == .sql",
           "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "sqlEditorTool.runSql",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "navigation@0"
         }
       ]
     },
@@ -317,9 +367,110 @@
           "type": "string",
           "default": "",
           "markdownDescription": "レポート（フォームつきの SQL、`.sql` ファイル）を保存するフォルダ。サイドバーの「レポート」に、このフォルダの中の `.sql` が並びます。空のときは、初めてレポートを作るときに選びます。"
+        },
+        "sqlEditorTool.logicalNames.headers": {
+          "type": "string",
+          "enum": [
+            "both",
+            "logical",
+            "physical"
+          ],
+          "enumDescriptions": [
+            "物理名の下に論理名を出す",
+            "論理名を出す（物理名はツールチップ）",
+            "物理名だけを出す"
+          ],
+          "default": "both",
+          "markdownDescription": "結果の表の列見出しに出す名前。画面の「列名」の切り替えでも変えられます。"
+        },
+        "sqlEditorTool.run.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "`.sql` の文ごとに「▶ 実行」を出します（Ctrl+Enter でも実行できます）。"
+        },
+        "sqlEditorTool.logicalNames.show": {
+          "type": "string",
+          "enum": [
+            "always",
+            "cursorLine",
+            "off"
+          ],
+          "enumDescriptions": [
+            "常に出す",
+            "カーソルのある行だけに出す",
+            "出さない（名前にカーソルを乗せると出る）"
+          ],
+          "default": "always",
+          "markdownDescription": "`.sql` で、テーブル名・列名の後ろに論理名（DB のコメント。SQL Server は拡張プロパティ `MS_Description`、Oracle は `COMMENT ON`）を出すか。コマンド「SQL の論理名の表示を切り替える」でも切り替えられます。"
+        },
+        "sqlEditorTool.logicalNames.style": {
+          "type": "string",
+          "enum": [
+            "lineEndTag",
+            "lineEnd",
+            "subtle",
+            "bracket",
+            "tag",
+            "inlayHint"
+          ],
+          "enumDescriptions": [
+            "行の終わりに、列ごとの色の付いた札で並べる（コードの形はそのまま）",
+            "行の終わりに、薄い字でまとめる",
+            "名前の後ろに、薄い色・斜体・少し小さく",
+            "名前の後ろに、薄い色で ‹論理名› と括る",
+            "名前の後ろに、色の付いた小さな札",
+            "名前の後ろに、VS Code のインレイヒント（0.8.0 の見た目）"
+          ],
+          "default": "lineEndTag",
+          "markdownDescription": "`.sql` の論理名の見た目。色は `workbench.colorCustomizations` の `sqlEditorTool.logicalNameTagForeground`・`sqlEditorTool.logicalNameTagBackground`・`sqlEditorTool.logicalNameForeground` で変えられます。"
+        },
+        "sqlEditorTool.logicalNames.alignLineEnd": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "論理名を行の終わりに出すとき、空行で区切ったひとかたまりの行ごとに、縦に揃えます。"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "sqlEditorTool.runSql",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && (editorLangId == sql || resourceExtname =~ /^\\.sql$/i)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "sqlEditorTool.logicalNameForeground",
+        "description": ".sql の論理名の文字の色（薄い色・括弧・行末の見た目）",
+        "defaults": {
+          "dark": "#8b949e",
+          "light": "#6e7781",
+          "highContrast": "#c0c0c0",
+          "highContrastLight": "#4d4d4d"
+        }
+      },
+      {
+        "id": "sqlEditorTool.logicalNameTagForeground",
+        "description": ".sql の論理名のラベルの文字の色",
+        "defaults": {
+          "dark": "#9ecbff",
+          "light": "#0550ae",
+          "highContrast": "#ffffff",
+          "highContrastLight": "#0550ae"
+        }
+      },
+      {
+        "id": "sqlEditorTool.logicalNameTagBackground",
+        "description": ".sql の論理名のラベルの背景の色",
+        "defaults": {
+          "dark": "#1f6feb33",
+          "light": "#0969da14",
+          "highContrast": "#1f6feb66",
+          "highContrastLight": "#0969da26"
+        }
+      }
+    ]
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",

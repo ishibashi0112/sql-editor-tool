@@ -131,3 +131,55 @@ describe("completeSql", () => {
     expect(calls.objects).toBe(2);
   });
 });
+
+describe("completeSql の論理名（D-40）", () => {
+  test("列とテーブルの候補に論理名を付け、論理名でも絞り込めるようにする", async () => {
+    const { cache } = counting();
+    const columns = await complete("SELECT ORDERS.|", cache);
+    expect(columns.find((e) => e.label === "ORDER_YMD")).toMatchObject({
+      logicalName: "受注日",
+      comment: "yyyymmdd",
+      filterText: "ORDER_YMD 受注日",
+    });
+    const tables = await complete("SELECT * FROM |", cache);
+    expect(tables.find((e) => e.label === "CUSTOMERS")).toMatchObject({
+      logicalName: "得意先",
+      filterText: "CUSTOMERS 得意先",
+    });
+    // 論理名のない列は、名前だけ
+    const view = await complete("SELECT V_OPEN_ORDERS.|", cache);
+    expect(view[0]).not.toHaveProperty("filterText");
+  });
+
+  test("ドットなしで論理名を打つと、その文のテーブルの列を出す（2 つ以上なら 別名.列）", async () => {
+    const { cache } = counting();
+    const one = await complete("SELECT 受注| FROM ORDERS", cache);
+    expect(
+      one.filter((e) => e.kind !== "keyword").map((e) => e.insertText),
+    ).toEqual(["ORDER_NO", "ORDER_YMD"]);
+    expect(one[1]).toMatchObject({
+      label: "ORDER_YMD",
+      filterText: "受注日",
+      logicalName: "受注日",
+    });
+    const two = await complete(
+      "SELECT 得意先| FROM APP.ORDERS o JOIN CUSTOMERS c ON c.CUST_CD = o.CUST_CD",
+      cache,
+    );
+    expect(
+      two.filter((e) => e.kind !== "keyword").map((e) => e.insertText),
+    ).toEqual(["o.CUST_CD", "c.CUST_CD", "c.CUST_NAME"]);
+    // 全角半角・大文字小文字は区別しない。物理名では出さない（D-39）
+    expect(
+      (await complete("SELECT ORDER| FROM ORDERS", cache)).every(
+        (e) => e.kind === "keyword",
+      ),
+    ).toBe(true);
+    // 接続がなければキーワードだけ
+    expect(
+      (await complete("SELECT 受注| FROM ORDERS", null)).every(
+        (e) => e.kind === "keyword",
+      ),
+    ).toBe(true);
+  });
+});

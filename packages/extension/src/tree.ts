@@ -13,6 +13,9 @@ export type TreeNode =
       profile: ConnectionProfile;
       table: TableRef;
       objectKind: "table" | "view";
+      /** 論理名とコメント（D-40） */
+      logicalName?: string | undefined;
+      comment?: string | undefined;
     };
 
 export class ConnectionTree implements vscode.TreeDataProvider<TreeNode> {
@@ -57,7 +60,19 @@ export class ConnectionTree implements vscode.TreeDataProvider<TreeNode> {
         item.iconPath = new vscode.ThemeIcon(
           node.objectKind === "view" ? "eye" : "table",
         );
-        if (node.objectKind === "view") item.description = "ビュー";
+        // 論理名を名前の横に出す（D-40）。コメントはツールチップ
+        const description = [
+          node.logicalName,
+          node.objectKind === "view" ? "ビュー" : undefined,
+        ].filter(Boolean);
+        if (description.length > 0) item.description = description.join(" · ");
+        item.tooltip = [
+          `${node.table.schema}.${node.table.name}`,
+          node.logicalName,
+          node.comment,
+        ]
+          .filter(Boolean)
+          .join("\n");
         item.command = {
           command: "sqlEditorTool.openTable",
           title: "データを開く",
@@ -92,6 +107,8 @@ export class ConnectionTree implements vscode.TreeDataProvider<TreeNode> {
             profile: node.profile,
             table: { schema: node.schema, name: object.name },
             objectKind: object.kind,
+            logicalName: object.logicalName,
+            comment: object.comment,
           }));
         }
         case "object":

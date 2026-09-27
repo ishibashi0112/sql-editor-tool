@@ -6,6 +6,9 @@ export {
 export { DemoSession, type DemoSessionOptions } from "./demo/demoSession";
 export type {
   FromWebview,
+  HeaderMode,
+  PrefsMessage,
+  SetHeaderModeMessage,
   SqlPreview,
   ToWebview,
   ViewColumn,
@@ -27,6 +30,18 @@ export {
   type ReportViewDeps,
   toViewColumns,
 } from "./reportView";
+export type {
+  FromResults,
+  ResultTab,
+  ToResults,
+} from "./resultsProtocol";
+export {
+  MAX_RESULT_TABS,
+  ResultsController,
+  type ResultsDeps,
+  type RunRequest,
+  type RunStatement,
+} from "./resultsView";
 export type {
   FromSearchView,
   SearchConnection,
@@ -50,6 +65,13 @@ export {
   completeSql,
   SchemaCache,
 } from "./sqlCompletion";
+export {
+  describeResultColumns,
+  type ResolveInput,
+  resolveSymbols,
+  type SqlSymbol,
+  symbolAt,
+} from "./sqlSymbols";
 export {
   type DateTimeParts,
   EXACT_DIGITS,

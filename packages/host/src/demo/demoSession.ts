@@ -43,20 +43,11 @@ export class DemoSession implements DbSession {
   }
 
   async listObjects(schema: string): Promise<DbObject[]> {
-    return DEMO_TABLES.filter((t) => t.schema === schema).map(
-      ({ name, kind }) => ({
-        name,
-        kind,
-      }),
-    );
+    return DEMO_TABLES.filter((t) => t.schema === schema).map(objectOf);
   }
 
   async listAllObjects(): Promise<SchemaObject[]> {
-    return DEMO_TABLES.map(({ schema, name, kind }) => ({
-      schema,
-      name,
-      kind,
-    }));
+    return DEMO_TABLES.map((t) => ({ schema: t.schema, ...objectOf(t) }));
   }
 
   async describeTable(table: TableRef): Promise<TableDescription> {
@@ -117,6 +108,16 @@ export class DemoSession implements DbSession {
       signal.addEventListener("abort", onAbort, { once: true });
     });
   }
+}
+
+function objectOf(table: DemoTable): DbObject {
+  const { name, kind, logicalName, comment } = table;
+  return {
+    name,
+    kind,
+    ...(logicalName ? { logicalName } : {}),
+    ...(comment ? { comment } : {}),
+  };
 }
 
 function findTable(table: TableRef): DemoTable {

@@ -49,6 +49,40 @@ describe("searchObjects", () => {
     expect(searchObjects(objects, "ジュ", 10).hits[0]?.highlight).toBeNull();
   });
 
+  test("論理名でも探す（名前で始まるもの → 論理名で始まるもの → 名前に含むもの → 論理名に含むもの）", () => {
+    const withLogical: SchemaObject[] = [
+      { schema: "APP", name: "ORDERS", kind: "table", logicalName: "受注明細" },
+      {
+        schema: "APP",
+        name: "CUSTOMERS",
+        kind: "table",
+        logicalName: "得意先",
+      },
+      {
+        schema: "APP",
+        name: "V_OPEN",
+        kind: "view",
+        logicalName: "未完了の受注",
+      },
+      { schema: "APP", name: "受注履歴", kind: "table" },
+    ];
+    const result = searchObjects(withLogical, "受注", 10);
+    expect(result.hits.map((h) => h.object.name)).toEqual([
+      "受注履歴",
+      "ORDERS",
+      "V_OPEN",
+    ]);
+    expect(result.hits[1]?.logicalHighlight).toEqual([0, 2]);
+    expect(result.hits[1]?.highlight).toBeNull();
+    expect(result.hits[2]?.logicalHighlight).toEqual([4, 6]);
+    // 語ごとに、名前か論理名のどちらかに含めばよい
+    expect(
+      searchObjects(withLogical, "orders 明細", 10).hits.map(
+        (h) => h.object.name,
+      ),
+    ).toEqual(["ORDERS"]);
+  });
+
   test("空の検索は何も返さない", () => {
     expect(searchObjects(objects, "  ", 10)).toEqual({ hits: [], total: 0 });
   });

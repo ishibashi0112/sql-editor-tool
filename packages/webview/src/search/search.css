@@ -121,12 +121,20 @@ body {
   color: inherit;
 }
 
-.name {
+.name,
+.logical {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.name mark {
+/* 論理名（D-40）。名前より縮みやすくし、名前が切れにくいようにする */
+.logical {
+  flex-shrink: 2;
+  min-width: 2em;
+}
+
+.name mark,
+.logical mark {
   background: var(--vscode-editor-findMatchHighlightBackground, #ffe58a);
   color: inherit;
   border-radius: 2px;

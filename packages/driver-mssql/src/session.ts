@@ -5,6 +5,7 @@ import {
   type BoundParam,
   type DbParamGuess,
   type ReportParamProbe,
+  splitDbComment,
   type TableRef,
 } from "@sql-editor-tool/core";
 import {
@@ -103,6 +104,7 @@ export class MssqlSession implements DbSession {
       name: String(row[0]),
       // sys.objects.type は char(2)（'U ' / 'V '）
       kind: String(row[1]).trim() === "V" ? "view" : "table",
+      ...splitDbComment(textOrNull(row[2])),
     }));
   }
 
@@ -112,6 +114,7 @@ export class MssqlSession implements DbSession {
       schema: String(row[0]),
       name: String(row[1]),
       kind: String(row[2]).trim() === "V" ? "view" : "table",
+      ...splitDbComment(textOrNull(row[3])),
     }));
   }
 
@@ -128,15 +131,18 @@ export class MssqlSession implements DbSession {
     }
     const primaryKey = await this.select(PRIMARY_KEY_SQL, params);
     return {
-      columns: columns.map(([name, typeName, maxLength, precision, scale]) => ({
-        name: String(name),
-        type: toColumnType({
-          typeName: String(typeName),
-          maxLength: Number(maxLength),
-          precision: Number(precision),
-          scale: Number(scale),
+      columns: columns.map(
+        ([name, typeName, maxLength, precision, scale, comment]) => ({
+          name: String(name),
+          type: toColumnType({
+            typeName: String(typeName),
+            maxLength: Number(maxLength),
+            precision: Number(precision),
+            scale: Number(scale),
+          }),
+          ...splitDbComment(textOrNull(comment)),
         }),
-      })),
+      ),
       primaryKey: primaryKey.map((row) => String(row[0])),
     };
   }
@@ -246,6 +252,10 @@ function undeduciblePlaceholder(
   return null;
 }
 
+function textOrNull(value: CellValue | undefined): string | null {
+  return value === null || value === undefined ? null : String(value);
+}
+
 /** sysname（nvarchar(128)）と比べる名前 */
 function nameParam(name: string, value: string): BoundParam {
   return { name, value, type: { kind: "string", unicode: true } };
@@ -348,9 +358,21 @@ export function execute(
     for (const param of params) {
       request.addParameter(param.name, param.type, param.value, param.options);
     }
+    let resultSets = 0;
     request.on("columnMetadata", (columns) => {
       const list = Array.isArray(columns) ? columns : Object.values(columns);
       types = list.map((column) => column.type.name);
+      resultSets += 1;
+      // T-SQL はセミコロンなしで文を続けられるので、SELECT を 2 つ並べると結果が 2 つ届く。
+      // 1 つの結果しか表示できないので、止めてエラーにする
+      if (resultSets > 1) {
+        guard(() => {
+          throw new Error(
+            "結果が 2 つ以上あります。1 回に実行できる SELECT は 1 つだけです（文の区切りに ; を書いてください）",
+          );
+        });
+        return;
+      }
       guard(() =>
         handlers.onColumns(
           list.map((column) => ({

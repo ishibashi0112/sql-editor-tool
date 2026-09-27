@@ -10,6 +10,7 @@ import {
   OPTIONS_LIMIT,
   type ReportConnection,
   ReportController,
+  type ReportViewDeps,
   toViewColumns,
 } from "./reportView";
 import { abortError, type DbSession, type QueryRequest } from "./session";
@@ -35,6 +36,7 @@ function setup(
     guess?: DbSession["guessParamTypes"];
     /** DB の問い合わせの代わり（なければデモ接続） */
     query?: DbSession["query"];
+    describeColumns?: ReportViewDeps["describeColumns"];
   } = {},
 ) {
   const demo = new DemoSession({ dialect: "mssql", chunkDelayMs: 0 });
@@ -71,6 +73,9 @@ function setup(
     editSql: () => {},
     chooseConnection,
     initialValues: options.initialValues,
+    ...(options.describeColumns
+      ? { describeColumns: options.describeColumns }
+      : {}),
     // ローカル時刻の 2026-09-26
     now: () => new Date(2026, 8, 26, 10, 0),
   });
@@ -128,6 +133,58 @@ describe("ReportController", () => {
     );
     expect(ofType("rows").flatMap((m) => m.rows)).toHaveLength(100);
     expect(ofType("queryDone")[0]).toMatchObject({ truncated: true });
+  });
+
+  test("executeIfReady：必須の入力欄が空なら実行せず、その入力欄を知らせる", async () => {
+    const { controller, ofType, requests } = setup();
+    await controller.handle({ type: "ready" });
+    expect(await controller.executeIfReady()).toBe("得意先");
+    expect(ofType("focusParam")).toEqual([
+      { type: "focusParam", name: "得意先" },
+    ]);
+    expect(requests).toHaveLength(0);
+    await controller.handle({
+      type: "valuesChanged",
+      values: { 得意先: "C00027" },
+    });
+    expect(await controller.executeIfReady()).toBeNull();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("executeIfReady：入力欄のない SQL の誤りは、実行してエラーとして出す", async () => {
+    const { controller, ofType } = setup({
+      text: "UPDATE [APP].[ORDERS] SET [QTY] = 1",
+    });
+    await controller.handle({ type: "ready" });
+    expect(await controller.executeIfReady()).toBeNull();
+    expect(ofType("queryFailed")[0]?.message).toContain("SELECT か WITH");
+  });
+
+  test("結果の列に論理名を付けて、列見出しを送り直す（D-40）", async () => {
+    const describeColumns = vi.fn(
+      async (_text: string, names: readonly string[]) =>
+        names.map((name) =>
+          name === "QTY" ? { logicalName: "数量", comment: "個数" } : {},
+        ),
+    );
+    const { controller, ofType } = setup({ describeColumns });
+    await controller.handle({ type: "ready" });
+    await controller.handle({
+      type: "valuesChanged",
+      values: { 得意先: "C00027" },
+    });
+    await controller.handle({ type: "execute", mode: "all" });
+    await vi.waitFor(() => expect(ofType("columns")).toHaveLength(2));
+    expect(describeColumns.mock.calls[0]?.[0]).toBe(TEXT);
+    const [first, second] = ofType("columns");
+    expect(first?.columns.find((c) => c.name === "QTY")).not.toHaveProperty(
+      "logicalName",
+    );
+    expect(second?.queryId).toBe(first?.queryId);
+    expect(second?.columns.find((c) => c.name === "QTY")).toMatchObject({
+      logicalName: "数量",
+      comment: "個数",
+    });
   });
 
   test("画面の絞り込みで取り直すときは、SQL を包んで WHERE を足す（ORDER BY は外す）", async () => {

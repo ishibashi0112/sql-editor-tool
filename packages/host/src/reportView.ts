@@ -11,6 +11,7 @@ import {
   getDialect,
   guessReportParamTypes,
   hasRelativeDefault,
+  type LogicalName,
   parseReportConfig,
   QueryBuildError,
   type QuerySource,
@@ -62,6 +63,14 @@ export type ReportViewDeps = {
   chooseConnection(): void;
   /** フォームの値が変わったとき（拡張が覚えておき、次に開いたときに入れる） */
   onValuesChanged?(values: ReportFormValues): void;
+  /**
+   * 結果の列の論理名（D-40）。SQL と結果の列名から、DB のテーブルの列の論理名を探す（describeResultColumns）。
+   * 省略すると論理名を出さない
+   */
+  describeColumns?(
+    text: string,
+    names: readonly string[],
+  ): Promise<LogicalName[]>;
   /** 今の時刻（相対の日付の既定値を計算する。テストで差し替える） */
   now?(): Date;
 };
@@ -101,6 +110,9 @@ export class ReportController {
       case "ready":
         this.postInit();
         return;
+      // 列見出しの表示は拡張（パネル）が設定に書く
+      case "setHeaderMode":
+        return;
       case "valuesChanged":
         this.values = message.values;
         this.deps.onValuesChanged?.(this.values);
@@ -130,6 +142,21 @@ export class ReportController {
         this.deps.chooseConnection();
         return;
     }
+  }
+
+  /**
+   * 値がそろっていれば実行する（.sql を Ctrl+Enter で実行したとき）。必須の入力欄が空など、
+   * 入力欄の値で実行できなければ、その入力欄にカーソルを置くよう画面に伝え、その名前を返す
+   */
+  async executeIfReady(): Promise<string | null> {
+    const preview = this.preview();
+    const name = preview.ok ? undefined : preview.columnKey;
+    if (name !== undefined && this.params.some((p) => p.name === name)) {
+      this.post({ type: "focusParam", name });
+      return name;
+    }
+    await this.execute("all");
+    return null;
   }
 
   /** ファイルが書き換わった・接続が変わったとき。入力した値は、同じ名前の入力欄に残す */
@@ -462,9 +489,28 @@ export class ReportController {
         this.resultNames = columns.map((column) => column.name);
         this.columns = toViewColumns(columns);
         this.post({ type: "columns", queryId, columns: this.columns });
+        void this.annotateColumns(queryId);
         return null;
       },
     });
+  }
+
+  /** 結果の列に論理名を付けて、列見出しを出し直す（行の取得は待たせない） */
+  private async annotateColumns(queryId: number): Promise<void> {
+    const { describeColumns } = this.deps;
+    if (!describeColumns) return;
+    const columns = this.columns;
+    let notes: LogicalName[];
+    try {
+      notes = await describeColumns(this.text, this.resultNames);
+    } catch {
+      // 論理名は見るためだけのものなので、取れなくても結果はそのまま使える
+      return;
+    }
+    // その間に実行し直していたら使わない
+    if (columns !== this.columns || !notes.some((n) => n.logicalName)) return;
+    this.columns = columns.map((column, i) => ({ ...column, ...notes[i] }));
+    this.post({ type: "columns", queryId, columns: this.columns });
   }
 
   private async copySql(variant: "bind" | "literal"): Promise<void> {
