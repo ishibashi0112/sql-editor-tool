@@ -159,6 +159,9 @@ button:disabled {
 }
 
 .error-notice {
+  /* DB のエラーは長く、複数のこともあるので折り返す */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--vscode-inputValidation-errorBackground, #ffebe9);
   color: var(
     --vscode-inputValidation-errorForeground,

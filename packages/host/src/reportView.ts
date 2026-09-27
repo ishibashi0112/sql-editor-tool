@@ -35,6 +35,7 @@ import type {
 } from "./reportProtocol";
 import {
   type CellValue,
+  DbQueryError,
   type DbSession,
   isAbortError,
   type ResultColumn,
@@ -75,6 +76,8 @@ export type ReportViewDeps = {
   now?(): Date;
   /** 実行の経過を記録する（拡張の「出力」の SQL Editor Tool。SQL の本文・入力した値・パスワードは渡さない） */
   log?(message: string): void;
+  /** 実行する SQL の 1 行目が、ファイルの何行目か（0 から）。DB のエラーの行をファイルの行に直す */
+  sqlLine?(): number;
 };
 
 export class ReportController {
@@ -520,6 +523,7 @@ export class ReportController {
         sort: filtered ? this.sort : [],
         limit: maxRows + 1,
       },
+      formatError: (error) => this.errorText(error, filtered),
       onColumns: (columns, queryId) => {
         this.resultNames = columns.map((column) => column.name);
         this.columns = toViewColumns(columns);
@@ -528,6 +532,26 @@ export class ReportController {
         return null;
       },
     });
+  }
+
+  /**
+   * DB のエラーの画面の文。SQL の行が分かれば「153 行目：…」にする。そのまま実行したときだけ
+   * （画面の絞り込みで取り直すときは SQL を包むので、行がずれる）
+   */
+  private errorText(error: unknown, filtered: boolean): string {
+    if (!(error instanceof DbQueryError)) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    const base = filtered ? undefined : this.deps.sqlLine?.();
+    const withLine = error.details.map((d) => {
+      if (d.line === undefined || filtered) return d.message;
+      return base === undefined
+        ? `SQL の ${d.line} 行目：${d.message}`
+        : `${base + d.line} 行目：${d.message}`;
+    });
+    // 画面では 1 件ずつ行を分けて出す
+    const text = withLine.filter((m) => m !== "").join("\n");
+    return text === "" ? error.message : text;
   }
 
   private log(message: string): void {

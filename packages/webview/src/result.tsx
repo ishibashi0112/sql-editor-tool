@@ -162,7 +162,7 @@ export function QueryStatus({
           中止しました（{n(query.rowCount)} 行まで表示）
         </span>
       ) : (
-        <span className="status error">{query.message}</span>
+        <span className="status error">実行できませんでした（理由は下）</span>
       );
   }
 }
@@ -229,6 +229,11 @@ export function ResultPane(props: ResultPaneProps) {
   return (
     <>
       {props.notice}
+      {query.status === "failed" && !query.cancelled && (
+        <div className="notice error-notice" role="alert">
+          {query.message}
+        </div>
+      )}
       {!running && (truncated || widened.length > 0) && (
         <div className="notice warning-notice">
           <span>

@@ -300,6 +300,9 @@ export class ResultsController {
         : {}),
       ...(deps.now ? { now: deps.now } : {}),
       ...(deps.log ? { log: deps.log } : {}),
+      // 実行する SQL は文の最初の字句から始まる（先頭のコメントと設定のコメントは送らない）
+      sqlLine: () =>
+        (this.tabs.find((t) => t.info.id === id)?.statement ?? statement).line,
     });
     deps.log?.(
       `${info.detail}：実行します（${request.connection?.name ?? "接続が決まっていません"}）`,

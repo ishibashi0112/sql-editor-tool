@@ -13,7 +13,12 @@ import {
   type ReportViewDeps,
   toViewColumns,
 } from "./reportView";
-import { abortError, type DbSession, type QueryRequest } from "./session";
+import {
+  abortError,
+  DbQueryError,
+  type DbSession,
+  type QueryRequest,
+} from "./session";
 
 // デモのテーブル ORDERS を使う架空のレポート
 const TEXT = `/* @report
@@ -39,6 +44,8 @@ function setup(
     describeColumns?: ReportViewDeps["describeColumns"];
     /** 接続を開く代わり（接続に時間がかかるとき・失敗するとき） */
     open?: (session: DbSession) => Promise<DbSession>;
+    /** 実行する SQL の 1 行目が、ファイルの何行目か（0 から） */
+    sqlLine?: number;
   } = {},
 ) {
   const demo = new DemoSession({ dialect: "mssql", chunkDelayMs: 0 });
@@ -71,6 +78,9 @@ function setup(
     settings: { maxRows: 100 },
     post: (message) => messages.push(message),
     log: (message) => logs.push(message),
+    ...(options.sqlLine !== undefined
+      ? { sqlLine: () => options.sqlLine ?? 0 }
+      : {}),
     copyText: async () => {},
     saveConfig: async (config) => {
       saved.push(config);
@@ -573,5 +583,49 @@ describe("実行の状況が見えること（O-18：0 件のまま何も出な�
       type: "queryNotice",
       notice: "lost",
     });
+  });
+});
+
+describe("DB のエラーの行（O-18）", () => {
+  const SQL = "SELECT *\nFROM [APP].[ORDERS]\nWHERE x = :y";
+  const failing = async () => {
+    throw new DbQueryError(
+      [
+        { message: "':' 付近に不適切な構文があります。", line: 3 },
+        { message: "接続が切れました" },
+      ],
+      "",
+    );
+  };
+
+  test("SQL の行を、ファイルの行（文の始まりの行から数える）にして出す", async () => {
+    const { controller, ofType } = setup({
+      text: SQL,
+      query: failing,
+      sqlLine: 150,
+      initialValues: { y: "1" },
+    });
+    await controller.handle({ type: "execute", mode: "all" });
+    expect(ofType("queryFailed").at(-1)?.message).toBe(
+      "153 行目：':' 付近に不適切な構文があります。\n接続が切れました",
+    );
+  });
+
+  test("ファイルの行が分からなければ SQL の行、画面の絞り込みで取り直すときは行を付けない", async () => {
+    const a = setup({ text: SQL, query: failing, initialValues: { y: "1" } });
+    await a.controller.handle({ type: "execute", mode: "all" });
+    expect(a.ofType("queryFailed").at(-1)?.message).toBe(
+      "SQL の 3 行目：':' 付近に不適切な構文があります。\n接続が切れました",
+    );
+    const b = setup({
+      text: SQL,
+      query: failing,
+      sqlLine: 150,
+      initialValues: { y: "1" },
+    });
+    await b.controller.handle({ type: "execute", mode: "filtered" });
+    expect(b.ofType("queryFailed").at(-1)?.message).toBe(
+      "':' 付近に不適切な構文があります。\n接続が切れました",
+    );
   });
 });

@@ -52,12 +52,15 @@ export {
   abortError,
   type CellValue,
   type DbObject,
+  DbQueryError,
   type DbSession,
   isAbortError,
+  lineAt,
   type QueryHandlers,
   type QueryRequest,
   type ResultColumn,
   type SchemaObject,
+  type SqlErrorDetail,
   type TableDescription,
 } from "./session";
 export {
