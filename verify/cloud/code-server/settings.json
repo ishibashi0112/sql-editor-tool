@@ -1,0 +1,11 @@
+{
+  "workbench.startupEditor": "none",
+  "security.workspace.trust.enabled": false,
+  "window.commandCenter": false,
+  "workbench.tips.enabled": false,
+  "editor.fontSize": 14,
+  "workbench.colorTheme": "Light Modern",
+  "[sql]": {
+    "editor.defaultFormatter": "ishibashi0112.sql-editor-tool"
+  }
+}

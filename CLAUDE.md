@@ -6,6 +6,7 @@
 
 - `docs/handover.md`：経緯、決定事項（D-xx）、未確定事項（O-xx）、段階計画、WHERE 生成の仕様。作業を始める前に必ず読むこと。
 - 決定や確認結果が出たら `docs/handover.md` を更新し、決定事項は D 番号、未確定事項は O 番号で管理する。
+- クラウドの環境で拡張を画面と Docker の DB（架空の表）で確かめるときは `verify/cloud/README.md`（`verify/cloud/start.sh` で SQL Server と code-server を起こす）。
 
 ## 前提
 
