@@ -576,3 +576,27 @@ kbd {
   font-family: inherit;
   font-size: 12px;
 }
+
+/* 下のパネルの結果（D-41）は高さが限られるので、ボタンと行を詰める */
+.app.compact .toolbar {
+  padding: 3px 8px;
+  gap: 6px;
+}
+
+.app.compact button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.app.compact .buttons {
+  gap: 4px;
+}
+
+.app.compact .form {
+  padding: 4px 8px;
+}
+
+.app.compact .preview {
+  padding: 2px 8px;
+  font-size: 12px;
+}

@@ -199,7 +199,7 @@ export function ReportApp({
     />
   );
   return (
-    <div className="app" ref={rootRef}>
+    <div className={compact ? "app compact" : "app"} ref={rootRef}>
       {compact ? (
         <header className="toolbar">
           {runButtons}
