@@ -43,6 +43,12 @@ export {
   toFilterOptions,
 } from "./filterOptions";
 export {
+  DEFAULT_FORMAT_OPTIONS,
+  formatSql,
+  type SqlFormatOptions,
+  type SqlFormatResult,
+} from "./format";
+export {
   type LogicalName,
   shortLogicalName,
   splitDbComment,

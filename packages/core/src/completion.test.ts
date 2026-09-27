@@ -199,6 +199,13 @@ SELECT * FROM 品目`),
     expect(
       statements("SELECT 数量 / 2 FROM 受注\n/\nSELECT * FROM 得意先", oracle),
     ).toEqual(["SELECT 数量 / 2 FROM 受注", "SELECT * FROM 得意先"]);
+    // q'[...]' の中の ' で文字列が終わったとみなさない
+    expect(
+      statements(
+        "SELECT q'[it's; ok]' FROM dual\n/\nSELECT 1 FROM dual",
+        oracle,
+      ),
+    ).toEqual(["SELECT q'[it's; ok]' FROM dual", "SELECT 1 FROM dual"]);
   });
 
   test("; なしで並べた問い合わせも分ける", () => {

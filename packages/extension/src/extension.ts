@@ -9,6 +9,7 @@ import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
 import { exportSettings, importSettings } from "./settingsTransfer";
 import { SqlEditing } from "./sqlEditing";
+import { SqlFormatting } from "./sqlFormatting";
 import { ConnectionTree, type TreeNode } from "./tree";
 
 let sessions: SessionManager | undefined;
@@ -34,6 +35,8 @@ export function activate(context: vscode.ExtensionContext): void {
     editing,
     // .sql の論理名の見た目（D-42）
     new LogicalNameDecorations(editing),
+    // .sql の整形（D-45）
+    new SqlFormatting(editing, context),
     vscode.window.createTreeView("sqlEditorTool.connections", {
       treeDataProvider: tree,
       showCollapseAll: true,

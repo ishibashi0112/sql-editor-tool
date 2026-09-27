@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -71,6 +71,11 @@
         "title": "SQL を実行",
         "category": "SQL Editor Tool",
         "icon": "$(play)"
+      },
+      {
+        "command": "sqlEditorTool.formatSql",
+        "title": "SQL を整形（:名前 を分けない）",
+        "category": "SQL Editor Tool"
       },
       {
         "command": "sqlEditorTool.runStatementAt",
@@ -197,6 +202,11 @@
           "command": "sqlEditorTool.runSql",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
           "group": "navigation@0"
+        },
+        {
+          "command": "sqlEditorTool.formatSql",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "1_modification@9"
         }
       ]
     },
@@ -263,6 +273,56 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "`.sql` の文ごとに「▶ 実行」を出します（Ctrl+Enter でも実行できます）。"
+        },
+        "sqlEditorTool.format.keywordCase": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "upper",
+            "lower"
+          ],
+          "enumDescriptions": [
+            "書いたまま",
+            "大文字にする",
+            "小文字にする"
+          ],
+          "default": "preserve",
+          "markdownDescription": "`.sql` を整形するときの、キーワード（SELECT など）の大文字・小文字。"
+        },
+        "sqlEditorTool.format.logicalOperatorNewline": {
+          "type": "string",
+          "enum": [
+            "before",
+            "after"
+          ],
+          "enumDescriptions": [
+            "AND・OR を行の頭に置く",
+            "AND・OR を行の終わりに置く"
+          ],
+          "default": "before",
+          "markdownDescription": "`.sql` を整形するときの、AND・OR の位置。"
+        },
+        "sqlEditorTool.format.expressionWidth": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "markdownDescription": "`.sql` を整形するときに、括弧の中をこの文字数までなら 1 行にまとめます。"
+        },
+        "sqlEditorTool.format.linesBetweenQueries": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 0,
+          "markdownDescription": "`.sql` を整形するときの、`;`・`GO`・`/` で区切った文の間の空行の数。"
+        },
+        "sqlEditorTool.format.denseOperators": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "`.sql` を整形するときに、演算子（`=`・`+` など）の前後に空白を入れません。"
+        },
+        "sqlEditorTool.format.newlineBeforeSemicolon": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "`.sql` を整形するときに、`;` の前で改行します。"
         },
         "sqlEditorTool.logicalNames.show": {
           "type": "string",
