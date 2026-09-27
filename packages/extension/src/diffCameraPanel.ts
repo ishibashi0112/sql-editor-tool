@@ -2,12 +2,8 @@
 // 撮る・比べるは host の DiffCameraController。ここは VS Code の画面の操作（表を選ぶ・条件を聞くなど）と保存
 
 import { randomBytes } from "node:crypto";
-import {
-  checkCondition,
-  getDialect,
-  sanitizeTableSettings,
-  type TableRef,
-} from "@sql-editor-tool/core";
+import { homedir } from "node:os";
+import { sanitizeTableSettings, type TableRef } from "@sql-editor-tool/core";
 import {
   type CameraTable,
   DEFAULT_SHOT_MAX_ROWS,
@@ -17,15 +13,20 @@ import {
   type FromCameraView,
   type FromDiffView,
   type SchemaObject,
+  type SheetRow,
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
 import { tableSettingsKey } from "./dataViewPanel";
+import { sheetXlsx } from "./excelSheet";
 import { STATE_KEYS } from "./fileSettings";
 import type { SessionManager } from "./sessions";
 import { dialectOf, type SqlEditing } from "./sqlEditing";
 
 export const DIFF_CAMERA_VIEW_ID = "sqlEditorTool.diffCamera";
+
+/** 「Excel で保存」で最後に保存したフォルダ（PC ごと。設定の書き出しには入れない） */
+const SAVE_DIR_KEY = "sqlEditorTool.diffCamera.saveDir";
 
 export type DiffCameraPanelDeps = {
   extensionUri: vscode.Uri;
@@ -77,10 +78,10 @@ export class DiffCameraPanel
         vscode.workspace
           .getConfiguration("sqlEditorTool")
           .get<number>("diffCamera.maxRows", DEFAULT_SHOT_MAX_ROWS),
+      dialect: (connection) => dialectOf(this.findProfile(connection)),
       askName: (current) => this.askName(current),
       chooseConnection: () => this.chooseConnection(),
       pickTables: (connection, current) => this.pickTables(connection, current),
-      askCondition: (connection, table) => this.askCondition(connection, table),
       confirmDelete: async (name) =>
         (await vscode.window.showWarningMessage(
           `差分カメラ「${name}」を消しますか？（撮ったものも消えます）`,
@@ -97,6 +98,9 @@ export class DiffCameraPanel
         await vscode.env.clipboard.writeText(text);
         vscode.window.setStatusBarMessage("差分をコピーしました", 3000);
       },
+      saveExcel: (fileName, rows) => this.saveExcel(fileName, rows),
+      showStatus: (message) =>
+        void vscode.window.setStatusBarMessage(message, 4000),
       showMessage: (message, kind) =>
         void (kind === "error"
           ? vscode.window.showWarningMessage(message)
@@ -309,26 +313,29 @@ export class DiffCameraPanel
     });
   }
 
-  private async askCondition(
-    connection: string,
-    table: CameraTable,
-  ): Promise<string | undefined> {
-    const dialect = getDialect(dialectOf(this.findProfile(connection)));
-    return vscode.window.showInputBox({
-      title: `「${table.schema}.${table.name}」の条件（撮る行を絞る）`,
-      prompt:
-        "WHERE の後に書く条件式（例：ORDER_YMD >= '20260901'）。空にすると条件を外します",
-      value: table.where ?? "",
-      validateInput: (value) => {
-        if (value.trim() === "") return undefined;
-        try {
-          checkCondition(dialect, value);
-          return undefined;
-        } catch (error) {
-          return error instanceof Error ? error.message : String(error);
-        }
-      },
+  private async saveExcel(fileName: string, rows: SheetRow[]): Promise<void> {
+    const dir = this.deps.state.get<string>(SAVE_DIR_KEY) ?? homedir();
+    const uri = await vscode.window.showSaveDialog({
+      title: "差分を Excel で保存",
+      defaultUri: vscode.Uri.joinPath(vscode.Uri.file(dir), fileName),
+      filters: { Excel: ["xlsx"] },
     });
+    if (!uri) return;
+    const data = await sheetXlsx(rows);
+    await vscode.workspace.fs.writeFile(uri, data);
+    await this.deps.state.update(
+      SAVE_DIR_KEY,
+      vscode.Uri.joinPath(uri, "..").fsPath,
+    );
+    this.deps.output.info(`差分を Excel で保存しました：${uri.fsPath}`);
+    const answer = await vscode.window.showInformationMessage(
+      `保存しました：${uri.fsPath}`,
+      "開く",
+      "フォルダを開く",
+    );
+    if (answer === "開く") await vscode.env.openExternal(uri);
+    else if (answer === "フォルダを開く")
+      await vscode.commands.executeCommand("revealFileInOS", uri);
   }
 }
 

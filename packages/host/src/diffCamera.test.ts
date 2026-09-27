@@ -7,7 +7,8 @@ import {
   shoot,
 } from "./diffCamera";
 import { DiffCameraController } from "./diffCameraController";
-import type { DiffView, ToCameraView } from "./diffCameraProtocol";
+import type { CameraItem, DiffView, ToCameraView } from "./diffCameraProtocol";
+import type { SheetRow } from "./diffSheet";
 import type { CellValue, DbSession, QueryRequest } from "./session";
 
 // 架空の表。rows を書き換えると、次に撮ったときの中身が変わる
@@ -177,6 +178,8 @@ describe("DiffCameraController", () => {
     const diffs: DiffView[] = [];
     const messages: string[] = [];
     const copied: string[] = [];
+    const excel: { fileName: string; rows: SheetRow[] }[] = [];
+    let clock = new Date(2026, 8, 27, 10, 15, 32).getTime();
     const deps = {
       load: () => saved,
       save: async (cameras: DiffCamera[]) => {
@@ -186,34 +189,44 @@ describe("DiffCameraController", () => {
       logicalName: (_c: string, t: TableRef) =>
         t.name === "STOCK" ? "在庫" : undefined,
       maxRows: () => 100,
+      dialect: () => "mssql" as const,
       askName: vi.fn(async () => "受注登録の確認"),
       chooseConnection: vi.fn(async () => "検証DB"),
       pickTables: vi.fn(async () => [
         { schema: "dbo", name: "STOCK" },
         { schema: "dbo", name: "ORDERS" },
       ]),
-      askCondition: vi.fn(async () => "WH_CD = '01'"),
       confirmDelete: vi.fn(async () => true),
       postView: (m: ToCameraView) => views.push(m),
       showDiff: (_id: string, view: DiffView) => diffs.push(view),
       copyText: async (t: string) => {
         copied.push(t);
       },
+      saveExcel: async (fileName: string, rows: SheetRow[]) => {
+        excel.push({ fileName, rows });
+      },
       showMessage: (m: string) => messages.push(m),
       newId: () => "cam1",
-      now: () => new Date(2026, 8, 27, 10, 15, 32).getTime(),
+      now: () => clock,
     };
     const controller = new DiffCameraController(deps);
-    const state = () => views.at(-1)?.cameras[0];
+    const state = (): CameraItem | undefined =>
+      views.findLast((v) => v.type === "state")?.cameras[0];
     return {
       controller,
       db,
       deps,
+      views,
       diffs,
       messages,
       copied,
+      excel,
       state,
       saved: () => saved,
+      /** 時計を進める（秒） */
+      tick: (seconds: number) => {
+        clock += seconds * 1000;
+      },
     };
   }
 
@@ -258,9 +271,18 @@ describe("DiffCameraController", () => {
         changed: [2],
       },
     ]);
-    expect(state()?.hasDiff).toBe(true);
+    expect(state()?.history).toEqual([
+      {
+        id: "cam1:1",
+        seq: 1,
+        beforeAt: new Date(2026, 8, 27, 10, 15, 32).getTime(),
+        afterAt: new Date(2026, 8, 27, 10, 15, 32).getTime(),
+        summary: "変更 1 行・追加 1 行",
+      },
+    ]);
+    expect(diffs.at(-1)?.tables[0]?.changedColumns).toEqual([2]);
 
-    await controller.handleDiff("cam1", { type: "copyText" });
+    await controller.handleDiff("cam1", { type: "copyText", entry: "cam1:1" });
     expect(copied[0]?.split("\n").slice(0, 4)).toEqual([
       "差分カメラ「受注登録の確認」（検証DB）　前 10:15:32 → 後 10:15:32",
       "",
@@ -277,9 +299,107 @@ describe("DiffCameraController", () => {
       "先に「前を撮る」を押してから、画面を操作してください",
     );
     await controller.handle({ type: "takeBefore", id: "cam1" });
-    await controller.handle({ type: "editCondition", id: "cam1", index: 0 });
+    await controller.handle({
+      type: "setCondition",
+      id: "cam1",
+      index: 0,
+      where: "  WH_CD = '01'  ",
+    });
     expect(state()?.tables[0]?.where).toBe("WH_CD = '01'");
     expect(state()?.before).toBeNull();
     expect(messages.at(-1)).toContain("「前」を撮り直してください");
+  });
+
+  test("条件：おかしな条件は入れない。空にすると外す。列の候補を送る", async () => {
+    const { controller, messages, state, views } = setup();
+    await controller.handle({ type: "create" });
+    await controller.handle({
+      type: "setCondition",
+      id: "cam1",
+      index: 0,
+      where: "WH_CD = @wh",
+    });
+    expect(state()?.tables[0]?.where).toBeUndefined();
+    expect(messages.at(-1)).toContain("バインド変数");
+    await controller.handle({
+      type: "setCondition",
+      id: "cam1",
+      index: 0,
+      where: "WH_CD = '01'",
+    });
+    await controller.handle({
+      type: "setCondition",
+      id: "cam1",
+      index: 0,
+      where: " ",
+    });
+    expect(state()?.tables[0]?.where).toBeUndefined();
+
+    await controller.handle({ type: "loadColumns", id: "cam1", index: 0 });
+    expect(views.at(-1)).toEqual({
+      type: "columns",
+      id: "cam1",
+      index: 0,
+      columns: [
+        { name: "ITEM_CD", logicalName: "品目コード", typeLabel: "文字 10" },
+        { name: "WH_CD", logicalName: "倉庫", typeLabel: "文字 10" },
+        { name: "QTY", logicalName: "在庫数", typeLabel: "文字 10" },
+      ],
+    });
+  });
+
+  test("比べた記録：回ごとに覚え、前の回も開ける。表や条件を変えても消えない。Excel は全部の行", async () => {
+    const { controller, db, diffs, excel, state, tick } = setup();
+    await controller.handle({ type: "create" });
+    await controller.handle({ type: "takeBefore", id: "cam1" });
+    tick(60);
+    db.STOCK.rows = [
+      ["A001", "01", "117"],
+      ["A002", "01", "40"],
+    ];
+    await controller.handle({ type: "takeAfter", id: "cam1" });
+    tick(60);
+    db.STOCK.rows = [["A001", "01", "117"]];
+    await controller.handle({ type: "takeAfter", id: "cam1" });
+
+    expect(state()?.history.map((h) => [h.id, h.seq, h.summary])).toEqual([
+      ["cam1:2", 2, "変更 1 行・削除 1 行"],
+      ["cam1:1", 1, "変更 1 行"],
+    ]);
+    expect(diffs.at(-1)?.entry).toBe("cam1:2");
+    expect(diffs.at(-1)?.history).toHaveLength(2);
+
+    await controller.handleDiff("cam1", { type: "show", entry: "cam1:1" });
+    expect(diffs.at(-1)?.entry).toBe("cam1:1");
+    expect(diffs.at(-1)?.tables[0]?.counts.changed).toBe(1);
+    // タブを作り直したとき（ready）は、出していた回
+    await controller.handleDiff("cam1", { type: "ready" });
+    expect(diffs.at(-1)?.entry).toBe("cam1:1");
+
+    await controller.handle({ type: "removeTable", id: "cam1", index: 1 });
+    expect(state()?.before).toBeNull();
+    expect(state()?.history).toHaveLength(2);
+    await controller.handle({ type: "openDiff", id: "cam1" });
+    expect(diffs.at(-1)?.entry).toBe("cam1:2");
+
+    await controller.handleDiff("cam1", {
+      type: "saveExcel",
+      entry: "cam1:2",
+      changedOnly: true,
+    });
+    expect(excel[0]?.fileName).toBe("差分_受注登録の確認_20260927_101732.xlsx");
+    expect(
+      excel[0]?.rows.filter((r) => r.kind !== "blank").map((r) => r.cells),
+    ).toEqual([
+      ["差分カメラ「受注登録の確認」（検証DB）"],
+      ["前 2026/09/27 10:15:32 → 後 2026/09/27 10:17:32"],
+      ["在庫 STOCK　変更 1 行・削除 1 行（キー：品目コード・倉庫）"],
+      ["区分", "ITEM_CD", "WH_CD", "QTY"],
+      ["", "品目コード", "倉庫", "在庫数"],
+      ["変更前", "A001", "01", "120"],
+      ["変更後", "A001", "01", "117"],
+      ["削除", "A002", "01", "40"],
+      ["ORDERS　変化なし（0 行）"],
+    ]);
   });
 });

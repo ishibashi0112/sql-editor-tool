@@ -3,6 +3,7 @@ export {
   type CompletionContext,
   completionContext,
   completionIdentifier,
+  isInsideLiteral,
   type NameReference,
   type SqlName,
   type SqlOutline,

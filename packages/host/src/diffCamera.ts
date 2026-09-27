@@ -10,7 +10,12 @@ import {
   type TableDiff,
   type TableRef,
 } from "@sql-editor-tool/core";
-import type { DiffRow, DiffTableView, DiffView } from "./diffCameraProtocol";
+import type {
+  DiffHistoryItem,
+  DiffRow,
+  DiffTableView,
+  DiffView,
+} from "./diffCameraProtocol";
 import { type CellValue, type DbSession, isAbortError } from "./session";
 
 /** カメラで見る表。where は SQL の条件式（なければ全部の行） */
@@ -236,6 +241,30 @@ export function comparisonText(
   );
 }
 
+/** 比べた回の「変更 2 行・追加 1 行」（全部の表を合わせて）。撮れなかった表があれば足す */
+export function comparisonSummary(tables: readonly TableComparison[]): string {
+  let changed = 0;
+  let added = 0;
+  let deleted = 0;
+  let errors = 0;
+  for (const t of tables) {
+    if (t.error || !t.diff) {
+      errors += 1;
+      continue;
+    }
+    changed += t.diff.changedRows;
+    added += t.diff.added;
+    deleted += t.diff.deleted;
+  }
+  const parts = [
+    changed > 0 ? `変更 ${changed} 行` : "",
+    added > 0 ? `追加 ${added} 行` : "",
+    deleted > 0 ? `削除 ${deleted} 行` : "",
+  ].filter((p) => p !== "");
+  const text = parts.length > 0 ? parts.join("・") : "変化なし";
+  return errors > 0 ? `${text}・撮れなかった表 ${errors}` : text;
+}
+
 function emptyDiff(): TableDiff {
   return {
     columns: [],
@@ -256,17 +285,22 @@ export const DIFF_VIEW_MAX_ROWS = 1000;
 export function diffView(input: {
   camera: string;
   connection: string;
-  before: Shot;
-  after: Shot;
+  entry: string;
+  history: DiffHistoryItem[];
+  beforeAt: number;
+  afterAt: number;
   comparisons: readonly TableComparison[];
+  /** 表ごとに出す行の上限（Excel で保存するときは Infinity） */
   maxRows?: number;
 }): DiffView {
   const maxRows = input.maxRows ?? DIFF_VIEW_MAX_ROWS;
   return {
     camera: input.camera,
     connection: input.connection,
-    beforeAt: input.before.takenAt,
-    afterAt: input.after.takenAt,
+    entry: input.entry,
+    history: input.history,
+    beforeAt: input.beforeAt,
+    afterAt: input.afterAt,
     tables: input.comparisons.map((t): DiffTableView => {
       const { diff } = t;
       const key = new Set(diff?.key ?? []);
@@ -279,6 +313,11 @@ export function diffView(input: {
         };
       });
       const changes = diff?.changes ?? [];
+      const changedColumns = new Set<number>();
+      for (const c of changes) {
+        if (c.kind === "changed")
+          for (const i of c.changed) changedColumns.add(i);
+      }
       const rows = changes.slice(0, maxRows).map(
         (c): DiffRow =>
           c.kind === "changed"
@@ -296,6 +335,7 @@ export function diffView(input: {
         ...(t.logicalName ? { logicalName: t.logicalName } : {}),
         ...(t.table.where ? { where: t.table.where } : {}),
         columns,
+        changedColumns: [...changedColumns].sort((a, b) => a - b),
         keySource: t.keySource,
         counts: {
           added: diff?.added ?? 0,

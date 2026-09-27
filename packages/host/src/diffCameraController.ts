@@ -1,10 +1,17 @@
 // 差分カメラ（D-47）の操作：カメラを作る・表を足す・条件を付ける・前を撮る・後を撮って比べる。
 // 撮ったもの（前・後）はここに持つ（VS Code を閉じるまで）。VS Code に依存しないので、画面の操作は deps で受け取る
 
-import type { DialectName, TableRef } from "@sql-editor-tool/core";
+import {
+  type ColumnInfo,
+  checkCondition,
+  type DialectName,
+  getDialect,
+  type TableRef,
+} from "@sql-editor-tool/core";
 import {
   type CameraTable,
   compareShots,
+  comparisonSummary,
   comparisonText,
   type DiffCamera,
   diffView,
@@ -14,11 +21,14 @@ import {
 } from "./diffCamera";
 import type {
   CameraItem,
+  ConditionColumn,
+  DiffHistoryItem,
   DiffView,
   FromCameraView,
   FromDiffView,
   ToCameraView,
 } from "./diffCameraProtocol";
+import { diffSheet, type SheetRow } from "./diffSheet";
 import { type DbSession, isAbortError } from "./session";
 
 export type DiffCameraDeps = {
@@ -37,6 +47,8 @@ export type DiffCameraDeps = {
   logicalName?(connection: string, table: TableRef): string | undefined;
   /** 表ごとの行数の上限 */
   maxRows(): number;
+  /** 接続の方言（条件の検査に使う。接続しない） */
+  dialect(connection: string): DialectName;
 
   // 画面の操作（入力を聞く）。やめたら undefined
   askName(current?: string): Promise<string | undefined>;
@@ -45,11 +57,6 @@ export type DiffCameraDeps = {
     connection: string,
     current: readonly TableRef[],
   ): Promise<TableRef[] | undefined>;
-  /** 条件式を聞く。空にしたら ""（条件を外す） */
-  askCondition(
-    connection: string,
-    table: CameraTable,
-  ): Promise<string | undefined>;
   confirmDelete(name: string): Promise<boolean>;
 
   postView(message: ToCameraView): void;
@@ -58,10 +65,26 @@ export type DiffCameraDeps = {
   /** 差分のタブで「後」を撮り直しているところか */
   diffBusy?(cameraId: string, busy: boolean): void;
   copyText(text: string): Promise<void>;
+  /** Excel のファイルに保存する（保存先を聞く）。fileName は保存先の既定の名前 */
+  saveExcel(fileName: string, rows: SheetRow[]): Promise<void>;
+  /** ステータスバーに少しの間だけ出す */
+  showStatus?(message: string): void;
   showMessage(message: string, kind: "info" | "error"): void;
   log?(message: string): void;
   now?(): number;
   newId?(): string;
+};
+
+/** 比べた記録（カメラごとに、新しいものから覚えておく数） */
+export const DIFF_HISTORY_LIMIT = 20;
+
+/** 比べた 1 回分。撮ったもの全体ではなく、差分だけを持つ */
+type HistoryEntry = {
+  id: string;
+  seq: number;
+  beforeAt: number;
+  afterAt: number;
+  comparisons: TableComparison[];
 };
 
 type Busy = {
@@ -74,10 +97,12 @@ type Busy = {
 export class DiffCameraController {
   private cameras: DiffCamera[];
   private readonly befores = new Map<string, Shot>();
-  private readonly lasts = new Map<
-    string,
-    { after: Shot; comparisons: TableComparison[] }
-  >();
+  /** カメラの ID → 比べた記録（古い順） */
+  private readonly history = new Map<string, HistoryEntry[]>();
+  /** カメラの ID → 比べた回の数（記録から消えても数える） */
+  private readonly seqs = new Map<string, number>();
+  /** 「接続\0スキーマ\0表」→ 列（条件の入力欄の候補） */
+  private readonly columnCache = new Map<string, ColumnInfo[]>();
   private readonly busy = new Map<string, Busy>();
 
   constructor(private readonly deps: DiffCameraDeps) {
@@ -102,8 +127,10 @@ export class DiffCameraController {
         return this.editTables(message.id, (tables) =>
           tables.filter((_, i) => i !== message.index),
         );
-      case "editCondition":
-        return this.editCondition(message.id, message.index);
+      case "loadColumns":
+        return this.loadColumns(message.id, message.index);
+      case "setCondition":
+        return this.setCondition(message.id, message.index, message.where);
       case "takeBefore":
         return this.take(message.id, "before");
       case "takeAfter":
@@ -112,7 +139,7 @@ export class DiffCameraController {
         this.busy.get(message.id)?.abort.abort();
         return;
       case "openDiff":
-        this.openDiff(message.id);
+        this.openDiff(message.id, message.entry);
         return;
     }
   }
@@ -121,10 +148,24 @@ export class DiffCameraController {
   async handleDiff(cameraId: string, message: FromDiffView): Promise<void> {
     switch (message.type) {
       case "ready":
-        this.openDiff(cameraId);
+        this.openDiff(cameraId, this.shown.get(cameraId));
+        return;
+      case "show":
+        this.openDiff(cameraId, message.entry);
         return;
       case "copyText":
-        return this.copyText(cameraId);
+        return this.copyText(cameraId, message.entry);
+      case "copiedTable":
+        this.deps.showStatus?.(
+          message.truncated
+            ? "差分を表でコピーしました（出している行まで。全部は「Excel で保存」で）"
+            : "差分を表でコピーしました（Excel に貼れます）",
+        );
+        return;
+      case "copyPlain":
+        return this.deps.copyText(message.text);
+      case "saveExcel":
+        return this.saveExcel(cameraId, message.entry, message.changedOnly);
       case "retakeAfter":
         return this.take(cameraId, "after");
     }
@@ -166,7 +207,8 @@ export class DiffCameraController {
     if (!camera || !(await this.deps.confirmDelete(camera.name))) return;
     this.busy.get(id)?.abort.abort();
     this.befores.delete(id);
-    this.lasts.delete(id);
+    this.history.delete(id);
+    this.shown.delete(id);
     await this.save(this.cameras.filter((c) => c.id !== id));
   }
 
@@ -188,17 +230,68 @@ export class DiffCameraController {
     await this.editTables(id, () => tables);
   }
 
-  private async editCondition(id: string, index: number): Promise<void> {
+  /** 条件の入力欄の列の候補を送る（接続していなければ接続する） */
+  private async loadColumns(id: string, index: number): Promise<void> {
     const camera = this.find(id);
     const table = camera?.tables[index];
     if (!camera || !table) return;
-    const where = await this.deps.askCondition(camera.connection, table);
-    if (where === undefined) return;
+    const cacheKey = [camera.connection, table.schema, table.name].join("\0");
+    try {
+      let columns = this.columnCache.get(cacheKey);
+      if (!columns) {
+        const { session } = await this.deps.openSession(camera.connection);
+        columns = (
+          await session.describeTable({
+            schema: table.schema,
+            name: table.name,
+          })
+        ).columns;
+        this.columnCache.set(cacheKey, columns);
+      }
+      this.deps.postView({
+        type: "columns",
+        id,
+        index,
+        columns: columns.map(conditionColumn),
+      });
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      this.deps.postView({
+        type: "columns",
+        id,
+        index,
+        columns: [],
+        error: `列の候補を出せませんでした：${text}`,
+      });
+    }
+  }
+
+  private async setCondition(
+    id: string,
+    index: number,
+    text: string,
+  ): Promise<void> {
+    const camera = this.find(id);
+    const table = camera?.tables[index];
+    if (!camera || !table) return;
+    const where = text.trim();
+    if (where !== "") {
+      try {
+        checkCondition(getDialect(this.deps.dialect(camera.connection)), where);
+      } catch (error) {
+        this.deps.showMessage(
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+        return;
+      }
+    }
+    if (where === (table.where ?? "")) return;
     await this.editTables(id, (tables) =>
       tables.map((t, i) => {
         if (i !== index) return t;
         const { where: _old, ...rest } = t;
-        return where.trim() === "" ? rest : { ...rest, where: where.trim() };
+        return where === "" ? rest : { ...rest, where };
       }),
     );
   }
@@ -285,9 +378,8 @@ export class DiffCameraController {
           );
         }
       } else if (before) {
-        const comparisons = compareShots(before, shot);
-        this.lasts.set(id, { after: shot, comparisons });
-        this.openDiff(id);
+        const entry = this.record(id, before, shot);
+        this.openDiff(id, entry.id);
       }
     } catch (error) {
       if (!isAbortError(error)) {
@@ -307,30 +399,91 @@ export class DiffCameraController {
     }
   }
 
-  private openDiff(id: string): void {
-    const camera = this.find(id);
-    const before = this.befores.get(id);
-    const last = this.lasts.get(id);
-    if (!camera || !before || !last) return;
-    this.deps.showDiff(
-      id,
-      diffView({
-        camera: camera.name,
-        connection: camera.connection,
-        before,
-        after: last.after,
-        comparisons: last.comparisons,
-      }),
-    );
+  /** 比べた回を記録に足す（古いものから捨てる） */
+  private record(id: string, before: Shot, after: Shot): HistoryEntry {
+    const seq = (this.seqs.get(id) ?? 0) + 1;
+    this.seqs.set(id, seq);
+    const entry: HistoryEntry = {
+      id: `${id}:${seq}`,
+      seq,
+      beforeAt: before.takenAt,
+      afterAt: after.takenAt,
+      comparisons: compareShots(before, after),
+    };
+    const list = [...(this.history.get(id) ?? []), entry];
+    this.history.set(id, list.slice(-DIFF_HISTORY_LIMIT));
+    return entry;
   }
 
-  private async copyText(id: string): Promise<void> {
+  /** 差分のタブで出している回（カメラの ID → 回の ID） */
+  private readonly shown = new Map<string, string>();
+
+  private entry(id: string, entry?: string): HistoryEntry | undefined {
+    const list = this.history.get(id) ?? [];
+    return (entry && list.find((e) => e.id === entry)) || list.at(-1);
+  }
+
+  private historyItems(id: string): DiffHistoryItem[] {
+    return (this.history.get(id) ?? [])
+      .map((e) => ({
+        id: e.id,
+        seq: e.seq,
+        beforeAt: e.beforeAt,
+        afterAt: e.afterAt,
+        summary: comparisonSummary(e.comparisons),
+      }))
+      .reverse();
+  }
+
+  private view(
+    camera: DiffCamera,
+    entry: HistoryEntry,
+    maxRows?: number,
+  ): DiffView {
+    return diffView({
+      camera: camera.name,
+      connection: camera.connection,
+      entry: entry.id,
+      history: this.historyItems(camera.id),
+      beforeAt: entry.beforeAt,
+      afterAt: entry.afterAt,
+      comparisons: entry.comparisons,
+      ...(maxRows !== undefined ? { maxRows } : {}),
+    });
+  }
+
+  private openDiff(id: string, entryId?: string): void {
     const camera = this.find(id);
-    const before = this.befores.get(id);
-    const last = this.lasts.get(id);
-    if (!camera || !before || !last) return;
-    const heading = `差分カメラ「${camera.name}」（${camera.connection}）　前 ${clock(before.takenAt)} → 後 ${clock(last.after.takenAt)}`;
-    await this.deps.copyText(comparisonText(heading, last.comparisons));
+    const entry = this.entry(id, entryId);
+    if (!camera || !entry) return;
+    this.shown.set(id, entry.id);
+    this.deps.showDiff(id, this.view(camera, entry));
+  }
+
+  private async copyText(id: string, entryId: string): Promise<void> {
+    const camera = this.find(id);
+    const entry = this.entry(id, entryId);
+    if (!camera || !entry) return;
+    const heading = `差分カメラ「${camera.name}」（${camera.connection}）　前 ${clock(entry.beforeAt)} → 後 ${clock(entry.afterAt)}`;
+    await this.deps.copyText(comparisonText(heading, entry.comparisons));
+  }
+
+  /** 全部の行を Excel に保存する（差分のタブの行の上限なし） */
+  private async saveExcel(
+    id: string,
+    entryId: string,
+    changedOnly: boolean,
+  ): Promise<void> {
+    const camera = this.find(id);
+    const entry = this.entry(id, entryId);
+    if (!camera || !entry) return;
+    const rows = diffSheet(this.view(camera, entry, Infinity), {
+      changedOnly,
+    });
+    await this.deps.saveExcel(
+      `差分_${fileSafe(camera.name)}_${stamp(entry.afterAt)}.xlsx`,
+      rows,
+    );
   }
 
   private find(id: string): DiffCamera | undefined {
@@ -353,6 +506,7 @@ export class DiffCameraController {
           id: camera.id,
           name: camera.name,
           connection: camera.connection,
+          dialect: this.deps.dialect(camera.connection),
           tables: camera.tables.map((t) => {
             const logicalName = this.deps.logicalName?.(camera.connection, t);
             return {
@@ -374,11 +528,47 @@ export class DiffCameraController {
           busy: busy
             ? { what: busy.what, done: busy.done, total: busy.total }
             : null,
-          hasDiff: this.lasts.has(camera.id) && before !== undefined,
+          history: this.historyItems(camera.id),
         };
       }),
     });
   }
+}
+
+function conditionColumn(column: ColumnInfo): ConditionColumn {
+  return {
+    name: column.name,
+    ...(column.logicalName ? { logicalName: column.logicalName } : {}),
+    typeLabel: typeLabel(column),
+  };
+}
+
+/** 条件を書くときの手がかりになる型の名前 */
+function typeLabel(column: ColumnInfo): string {
+  if (column.semantic?.kind === "date") return "日付（yyyymmdd）";
+  const { type } = column;
+  switch (type.kind) {
+    case "string":
+      return type.length === null ? "文字" : `文字 ${type.length}`;
+    case "number":
+      return "数値";
+    case "datetime":
+      return type.hasTime ? "日時" : "日付";
+    case "other":
+      return type.dbTypeName;
+  }
+}
+
+/** ファイル名に使えない文字を「_」にする */
+function fileSafe(name: string): string {
+  return name.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 60);
+}
+
+/** 20260927_101532 */
+function stamp(time: number): string {
+  const d = new Date(time);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
 /** 時:分:秒（その PC の時刻） */

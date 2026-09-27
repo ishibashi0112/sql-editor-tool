@@ -1,27 +1,63 @@
-// サイドバーの「差分カメラ」（D-47）。カメラごとに「前を撮る」→ 画面を操作 →「後を撮って比べる」
+// サイドバーの「差分カメラ」（D-47）。カメラごとに「前を撮る」→ 画面を操作 →「後を撮って比べる」。
+// 比べた記録の一覧と、表の条件の入力欄（列の候補付き）もここに出す（D-48）
 
 import type {
   CameraItem,
+  ConditionColumn,
   FromCameraView,
   ToCameraView,
 } from "@sql-editor-tool/host";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HostApi } from "../hostApi";
+import { ConditionEditor } from "./ConditionEditor";
 
 export type CameraApi = HostApi<FromCameraView, ToCameraView>;
+
+/** 条件を書いている表 */
+type Editing = { id: string; index: number };
+
+/** 条件の入力欄の列の候補（取っているところは columns が null） */
+type EditingColumns = {
+  columns: ConditionColumn[] | null;
+  error?: string | undefined;
+};
+
+/** サイドバーに出す比べた記録の数（ほかは「もっと見る」） */
+const HISTORY_SHOWN = 3;
 
 export function CameraApp({ api }: { api: CameraApi }) {
   const [cameras, setCameras] = useState<CameraItem[] | null>(null);
   /** 畳んだカメラ */
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [editingColumns, setEditingColumns] = useState<EditingColumns>({
+    columns: null,
+  });
+
+  /** 届いた列の候補が、今書いている表のものか確かめる */
+  const editingRef = useRef<Editing | null>(null);
 
   useEffect(() => {
     const unsubscribe = api.subscribe((message) => {
       if (message.type === "state") setCameras(message.cameras);
+      else if (message.type === "columns") {
+        const current = editingRef.current;
+        if (current?.id === message.id && current.index === message.index) {
+          setEditingColumns({ columns: message.columns, error: message.error });
+        }
+      }
     });
     api.post({ type: "ready" });
     return unsubscribe;
   }, [api]);
+
+  const edit = (next: Editing | null) => {
+    editingRef.current = next;
+    setEditing(next);
+    if (!next) return;
+    setEditingColumns({ columns: null });
+    api.post({ type: "loadColumns", id: next.id, index: next.index });
+  };
 
   if (cameras === null) return null;
   const toggle = (id: string) =>
@@ -45,6 +81,10 @@ export function CameraApp({ api }: { api: CameraApi }) {
           folded={folded.has(camera.id)}
           onToggle={() => toggle(camera.id)}
           post={(message) => api.post(message)}
+          editing={editing?.id === camera.id ? editing.index : null}
+          editingColumns={editingColumns}
+          onEdit={(index) => edit({ id: camera.id, index })}
+          onEditDone={() => edit(null)}
         />
       ))}
       <button
@@ -63,13 +103,24 @@ function Camera({
   folded,
   onToggle,
   post,
+  editing,
+  editingColumns,
+  onEdit,
+  onEditDone,
 }: {
   camera: CameraItem;
   folded: boolean;
   onToggle(): void;
   post(message: FromCameraView): void;
+  /** 条件を書いている表の添字 */
+  editing: number | null;
+  editingColumns: EditingColumns;
+  onEdit(index: number): void;
+  onEditDone(): void;
 }) {
-  const { id, before, busy } = camera;
+  const { id, before, busy, history } = camera;
+  const [moreHistory, setMoreHistory] = useState(false);
+  const shownHistory = moreHistory ? history : history.slice(0, HISTORY_SHOWN);
   return (
     <section className="camera">
       <div className="camera-title">
@@ -149,14 +200,41 @@ function Camera({
               "まだ「前」を撮っていません"
             )}
           </p>
-          {camera.hasDiff && (
-            <button
-              type="button"
-              className="link"
-              onClick={() => post({ type: "openDiff", id })}
-            >
-              前回の差分を開く
-            </button>
+          {history.length > 0 && (
+            <div className="camera-history">
+              <div className="camera-history-title">
+                比べた記録（クリックで差分を開く。VS Code を閉じるまで）
+              </div>
+              <ul>
+                {shownHistory.map((h) => (
+                  <li key={h.id}>
+                    <button
+                      type="button"
+                      className="history-item"
+                      onClick={() =>
+                        post({ type: "openDiff", id, entry: h.id })
+                      }
+                      title={`前 ${clock(h.beforeAt)} → 後 ${clock(h.afterAt)}`}
+                    >
+                      <span className="history-seq">{h.seq} 回目</span>
+                      <span className="history-time">{clock(h.afterAt)}</span>
+                      <span className="history-summary">{h.summary}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {history.length > HISTORY_SHOWN && (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setMoreHistory((v) => !v)}
+                >
+                  {moreHistory
+                    ? "少なくする"
+                    : `ほか ${history.length - HISTORY_SHOWN} 回を見る`}
+                </button>
+              )}
+            </div>
           )}
           <ul className="camera-tables">
             {camera.tables.map((table, index) => (
@@ -173,7 +251,10 @@ function Camera({
                     type="button"
                     className="icon"
                     title="条件を付ける・変える（大きい表は行を絞る）"
-                    onClick={() => post({ type: "editCondition", id, index })}
+                    aria-expanded={editing === index}
+                    onClick={() =>
+                      editing === index ? onEditDone() : onEdit(index)
+                    }
                   >
                     条件
                   </button>
@@ -186,15 +267,30 @@ function Camera({
                     ×
                   </button>
                 </div>
-                {table.where && (
-                  <button
-                    type="button"
-                    className="camera-where"
-                    title="条件を変える"
-                    onClick={() => post({ type: "editCondition", id, index })}
-                  >
-                    条件：{table.where}
-                  </button>
+                {editing === index ? (
+                  <ConditionEditor
+                    table={table.logicalName ?? table.name}
+                    initial={table.where ?? ""}
+                    dialect={camera.dialect}
+                    columns={editingColumns.columns}
+                    columnsError={editingColumns.error}
+                    onSave={(where) => {
+                      post({ type: "setCondition", id, index, where });
+                      onEditDone();
+                    }}
+                    onCancel={onEditDone}
+                  />
+                ) : (
+                  table.where && (
+                    <button
+                      type="button"
+                      className="camera-where"
+                      title="条件を変える"
+                      onClick={() => onEdit(index)}
+                    >
+                      条件：{table.where}
+                    </button>
+                  )
                 )}
               </li>
             ))}

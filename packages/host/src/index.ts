@@ -7,6 +7,7 @@ export { DemoSession, type DemoSessionOptions } from "./demo/demoSession";
 export {
   type CameraTable,
   compareShots,
+  comparisonSummary,
   comparisonText,
   DEFAULT_SHOT_MAX_ROWS,
   DIFF_VIEW_MAX_ROWS,
@@ -20,12 +21,15 @@ export {
 } from "./diffCamera";
 export {
   clock,
+  DIFF_HISTORY_LIMIT,
   DiffCameraController,
   type DiffCameraDeps,
 } from "./diffCameraController";
 export type {
   CameraItem,
+  ConditionColumn,
   DiffColumn,
+  DiffHistoryItem,
   DiffRow,
   DiffTableView,
   DiffView,
@@ -34,6 +38,20 @@ export type {
   ToCameraView,
   ToDiffView,
 } from "./diffCameraProtocol";
+export {
+  dateTime,
+  diffSheet,
+  isGridRow,
+  keySummary,
+  SHEET_COLORS,
+  SHEET_KIND_LABELS,
+  type SheetRow,
+  type SheetRowKind,
+  sheetHtml,
+  sheetTsv,
+  shownColumns,
+  tableSummary,
+} from "./diffSheet";
 export type {
   FromWebview,
   HeaderMode,

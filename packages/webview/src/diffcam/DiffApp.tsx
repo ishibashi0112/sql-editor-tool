@@ -1,11 +1,18 @@
-// 差分カメラ（D-47）の差分のタブ。表ごとに追加・削除・変更の行を並べ、変わったセルに「前 → 後」を出す
+// 差分カメラ（D-47）の差分のタブ。表ごとに追加・削除・変更の行を並べ、変わったセルに「前 → 後」を出す。
+// 比べた記録のほかの回に切り替えられる。Excel に貼る・保存する（D-48）
 
-import type {
-  DiffRow,
-  DiffTableView,
-  DiffView,
-  FromDiffView,
-  ToDiffView,
+import {
+  type DiffRow,
+  type DiffTableView,
+  type DiffView,
+  diffSheet,
+  type FromDiffView,
+  keySummary,
+  sheetHtml,
+  sheetTsv,
+  shownColumns,
+  type ToDiffView,
+  tableSummary,
 } from "@sql-editor-tool/host";
 import { useEffect, useState } from "react";
 import type { HostApi } from "../hostApi";
@@ -30,14 +37,44 @@ export function DiffApp({ api }: { api: DiffApi }) {
   }, [api]);
 
   if (!view) return null;
+  const copyTable = async () => {
+    const rows = diffSheet(view, { changedOnly });
+    const text = sheetTsv(rows);
+    const truncated = view.tables.some((t) => t.more > 0);
+    if (await copyHtml(sheetHtml(rows), text)) {
+      api.post({ type: "copiedTable", truncated });
+    } else {
+      // HTML を入れられなければ、タブ区切りの文字だけ（Excel に貼るとセルに分かれる）
+      api.post({ type: "copyPlain", text });
+    }
+  };
+  const current = view.history.find((h) => h.id === view.entry);
   return (
     <div className="diff">
       <header className="diff-bar">
         <span className="diff-title">{view.camera}</span>
-        <span className="diff-meta">
-          前 {clock(view.beforeAt)} → 後 {clock(view.afterAt)}（
-          {view.connection}）
-        </span>
+        {view.history.length > 1 ? (
+          <select
+            className="diff-history"
+            value={view.entry}
+            title="比べた記録（VS Code を閉じるまで覚えています）"
+            onChange={(event) =>
+              api.post({ type: "show", entry: event.target.value })
+            }
+          >
+            {view.history.map((h) => (
+              <option key={h.id} value={h.id}>
+                {`${h.seq} 回目　前 ${clock(h.beforeAt)} → 後 ${clock(h.afterAt)}　${h.summary}`}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="diff-meta">
+            {current ? `${current.seq} 回目　` : ""}前 {clock(view.beforeAt)} →
+            後 {clock(view.afterAt)}
+          </span>
+        )}
+        <span className="diff-meta">{view.connection}</span>
         <span className="spacer" />
         <label className="diff-toggle">
           <input
@@ -50,10 +87,28 @@ export function DiffApp({ api }: { api: DiffApi }) {
         <button
           type="button"
           className="secondary"
-          onClick={() => api.post({ type: "copyText" })}
+          onClick={() => void copyTable()}
+          title="Excel に貼ると、色と罫線の付いた表になります（変わった行は変更前・変更後の 2 行。「変わった列だけ」に従います）"
+        >
+          表でコピー
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => api.post({ type: "copyText", entry: view.entry })}
           title="表ごとに 1 行 1 文の形でコピーします（検証の記録に貼れます）"
         >
           テキストでコピー
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() =>
+            api.post({ type: "saveExcel", entry: view.entry, changedOnly })
+          }
+          title="「表でコピー」と同じ形の Excel ファイル（.xlsx）に保存します。行が多くて画面に出していない行も入ります"
+        >
+          Excel で保存
         </button>
         <button
           type="button"
@@ -110,44 +165,19 @@ function TableSection({
   table: DiffTableView;
   changedOnly: boolean;
 }) {
-  const { added, deleted, changed, unchanged } = table.counts;
+  const { added, deleted, changed } = table.counts;
   const total = added + deleted + changed;
-  const keyNames = table.columns
-    .filter((c) => c.key)
-    .map((c) => c.logicalName ?? c.name);
-  // 変わった列（どれかの行で変わった列）とキーの列だけ。変更の行がなければ（追加・削除だけ）全部の列
-  const changedSet = new Set(
-    table.rows.flatMap((row) => (row.kind === "changed" ? row.changed : [])),
-  );
-  const shown = table.columns
-    .map((column, index) => ({ column, index }))
-    .filter(
-      ({ column, index }) =>
-        !changedOnly ||
-        changedSet.size === 0 ||
-        column.key ||
-        changedSet.has(index),
-    );
+  const shown = shownColumns(table, changedOnly).map((index) => ({
+    column: table.columns[index] ?? { name: "", key: false },
+    index,
+  }));
   return (
     <section className="diff-table" id={anchor(table)}>
       <h2>
         {table.logicalName ?? table.name}
         {table.logicalName && <span className="phys">{table.name}</span>}
         <span className="meta">
-          {table.error
-            ? ""
-            : total === 0
-              ? `変化なし（${unchanged.toLocaleString("ja-JP")} 行）`
-              : [
-                  changed > 0 ? `変更 ${changed} 行` : "",
-                  added > 0 ? `追加 ${added} 行` : "",
-                  deleted > 0 ? `削除 ${deleted} 行` : "",
-                ]
-                  .filter((s) => s !== "")
-                  .join("・")}
-          {table.keySource !== "none" && keyNames.length > 0
-            ? `（キー：${keyNames.join("・")}${table.keySource === "settings" ? "。列の設定で指定" : ""}）`
-            : ""}
+          {table.error ? "" : `${tableSummary(table)}${keySummary(table)}`}
         </span>
       </h2>
       {table.where && <p className="diff-note">条件：{table.where}</p>}
@@ -204,8 +234,8 @@ function TableSection({
       )}
       {table.more > 0 && (
         <p className="diff-note">
-          ほかに {table.more.toLocaleString("ja-JP")}{" "}
-          行あります（「テキストでコピー」で全部見られます）
+          ほかに {table.more.toLocaleString("ja-JP")} 行あります（「Excel
+          で保存」「テキストでコピー」には全部入ります）
         </p>
       )}
     </section>
@@ -238,6 +268,38 @@ function Value({ value }: { value: CellValue }) {
   if (value === null) return <span className="null">NULL</span>;
   if (value === "") return <span className="null">（空）</span>;
   return <>{String(value)}</>;
+}
+
+/** HTML（Excel に貼ると表になる）とタブ区切りの文字を、クリップボードに入れる。入れられなければ false */
+async function copyHtml(html: string, text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" }),
+      }),
+    ]);
+    return true;
+  } catch {
+    // 使えなければ、copy のイベントで入れる
+  }
+  let done = false;
+  const listener = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/html", html);
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+    done = true;
+  };
+  document.addEventListener("copy", listener);
+  try {
+    document.execCommand("copy");
+  } catch {
+    // 下で false を返す
+  } finally {
+    document.removeEventListener("copy", listener);
+  }
+  return done;
 }
 
 function anchor(table: DiffTableView): string {
