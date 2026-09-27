@@ -29,7 +29,9 @@ import {
   useState,
 } from "react";
 import { CopyButtons } from "../App";
+import { hasLogicalNames } from "../gridColumns";
 import type { HostApi } from "../hostApi";
+import { HeaderModeToggle, useHeaderMode } from "../prefs";
 import {
   isQueryMessage,
   QueryStatus,
@@ -65,6 +67,7 @@ export function ReportApp({ api }: { api: ReportApi }) {
   const result = useQueryResult();
   const handleQuery = result.handle;
   const { queryIdRef } = result;
+  const [headerMode, setHeaderMode] = useHeaderMode(api);
   const valuesRef = useRef<ReportFormValues>({});
 
   useEffect(() => {
@@ -201,6 +204,9 @@ export function ReportApp({ api }: { api: ReportApi }) {
       <div className="toolbar statusbar">
         <QueryStatus query={result.query} maxRows={view.maxRows} />
         <span className="spacer" />
+        {hasLogicalNames(columns) && (
+          <HeaderModeToggle mode={headerMode} onChange={setHeaderMode} />
+        )}
         <CopyButtons
           enabled={preview?.ok === true}
           onCopy={(variant) => api.post({ type: "copySql", variant })}
@@ -217,6 +223,7 @@ export function ReportApp({ api }: { api: ReportApi }) {
         onConditions={onConditions}
         onRefetch={() => api.post({ type: "execute", mode: "filtered" })}
         idleText="値を入れて実行すると、ここに結果が出ます"
+        headerMode={headerMode}
         notice={
           connection?.demo && (
             <div className="notice">

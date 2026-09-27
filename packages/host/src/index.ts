@@ -6,6 +6,9 @@ export {
 export { DemoSession, type DemoSessionOptions } from "./demo/demoSession";
 export type {
   FromWebview,
+  HeaderMode,
+  PrefsMessage,
+  SetHeaderModeMessage,
   SqlPreview,
   ToWebview,
   ViewColumn,
@@ -51,6 +54,7 @@ export {
   SchemaCache,
 } from "./sqlCompletion";
 export {
+  describeResultColumns,
   type ResolveInput,
   resolveSymbols,
   type SqlSymbol,

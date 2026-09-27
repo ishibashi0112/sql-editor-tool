@@ -8,6 +8,7 @@ import {
   writeReportConfig,
 } from "@sql-editor-tool/core";
 import {
+  describeResultColumns,
   type FromReport,
   type ReportConnection,
   ReportController,
@@ -17,7 +18,9 @@ import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
 import { type RecentReports, reportName } from "./reports";
 import type { SessionManager } from "./sessions";
+import type { SqlEditing } from "./sqlEditing";
 import { describe } from "./tree";
+import { connectPrefs } from "./viewPrefs";
 
 const VALUES_KEY = "sqlEditorTool.reportValues";
 
@@ -28,6 +31,8 @@ export type ReportPanelDeps = {
   recent: RecentReports;
   /** フォームの値を覚えておく場所（次に開いたときに入れる） */
   state: vscode.Memento;
+  /** 結果の列の論理名（D-40）を探すための、テーブルの一覧と列（補完と同じものを使う） */
+  editing: SqlEditing;
 };
 
 export class ReportPanels {
@@ -119,6 +124,17 @@ class ReportPanel {
       },
       chooseConnection: () => void this.chooseConnection(),
       onValuesChanged: (values) => this.saveValues(values),
+      describeColumns: async (text, names) => {
+        const profile = this.profile(text);
+        const connection = this.connection(text);
+        if (!profile || !connection) return [];
+        return describeResultColumns({
+          dialect: connection.dialect,
+          text,
+          cache: deps.editing.cacheFor(profile),
+          names,
+        });
+      },
     });
 
     // エディタの外（エクスプローラーや別のツール）でファイルが書き換わったとき
@@ -131,6 +147,7 @@ class ReportPanel {
     watcher.onDidChange(() => this.scheduleReload());
     this.disposables.push(
       watcher,
+      connectPrefs(this.panel.webview),
       this.panel.webview.onDidReceiveMessage((message: FromReport) => {
         this.controller.handle(message).catch((error: unknown) => {
           void vscode.window.showErrorMessage(

@@ -7,7 +7,12 @@ import type {
   ReportParamConfig,
   SortEntry,
 } from "@sql-editor-tool/core";
-import type { SqlPreview, ViewColumn } from "./protocol";
+import type {
+  PrefsMessage,
+  SetHeaderModeMessage,
+  SqlPreview,
+  ViewColumn,
+} from "./protocol";
 import type { QueryMessage } from "./queryRunner";
 
 /** フォームの値（入力欄の名前 → 入力した文字列） */
@@ -44,6 +49,7 @@ export type ReportInit = {
 
 export type ToReport =
   | { type: "init"; view: ReportInit }
+  | PrefsMessage
   | { type: "preview"; preview: SqlPreview }
   /** 選択肢の候補が届いた・取得に失敗した */
   | { type: "options"; name: string; state: ReportOptionsState }
@@ -53,6 +59,7 @@ export type ToReport =
 
 export type FromReport =
   | { type: "ready" }
+  | SetHeaderModeMessage
   | { type: "valuesChanged"; values: ReportFormValues }
   | {
       type: "conditionsChanged";

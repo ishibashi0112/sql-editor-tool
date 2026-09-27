@@ -5,7 +5,9 @@ import type { SortEntry } from "@sql-editor-tool/core";
 import type { SqlPreview, ToWebview, ViewInit } from "@sql-editor-tool/host";
 import { useCallback, useEffect, useState } from "react";
 import { ColumnSettings } from "./ColumnSettings";
+import { hasLogicalNames } from "./gridColumns";
 import type { HostApi } from "./hostApi";
+import { HeaderModeToggle, useHeaderMode } from "./prefs";
 import {
   isQueryMessage,
   QueryStatus,
@@ -25,6 +27,7 @@ export function App({ api }: { api: HostApi }) {
   const [suggestionClosed, setSuggestionClosed] = useState(false);
   const result = useQueryResult();
   const handleQuery = result.handle;
+  const [headerMode, setHeaderMode] = useHeaderMode(api);
 
   useEffect(() => {
     const unsubscribe = api.subscribe((message: ToWebview) => {
@@ -78,7 +81,12 @@ export function App({ api }: { api: HostApi }) {
   return (
     <div className="app">
       <header className="toolbar">
-        <strong className="title">{view.title}</strong>
+        <strong className="title">
+          {view.title}
+          {view.logicalName && (
+            <span className="title-logical">{view.logicalName}</span>
+          )}
+        </strong>
         <button
           type="button"
           onClick={executeAll}
@@ -97,6 +105,9 @@ export function App({ api }: { api: HostApi }) {
         </button>
         <QueryStatus query={result.query} maxRows={view.maxRows} />
         <span className="spacer" />
+        {hasLogicalNames(view.columns) && (
+          <HeaderModeToggle mode={headerMode} onChange={setHeaderMode} />
+        )}
         <CopyButtons
           enabled={preview?.ok === true}
           onCopy={(variant) => api.post({ type: "copySql", variant })}
@@ -131,6 +142,7 @@ export function App({ api }: { api: HostApi }) {
         onConditions={onConditions}
         onRefetch={executeFiltered}
         idleText="実行すると、ここに結果が出ます"
+        headerMode={headerMode}
         notice={
           <>
             {view.demo && (

@@ -150,6 +150,11 @@
         "title": "SQL の補完に使う接続を選ぶ",
         "category": "SQL Editor Tool",
         "icon": "$(database)"
+      },
+      {
+        "command": "sqlEditorTool.toggleLogicalNameHints",
+        "title": "SQL の論理名の表示を切り替える",
+        "category": "SQL Editor Tool"
       }
     ],
     "menus": {
@@ -317,6 +322,26 @@
           "type": "string",
           "default": "",
           "markdownDescription": "レポート（フォームつきの SQL、`.sql` ファイル）を保存するフォルダ。サイドバーの「レポート」に、このフォルダの中の `.sql` が並びます。空のときは、初めてレポートを作るときに選びます。"
+        },
+        "sqlEditorTool.logicalNames.inlayHints": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "`.sql` で、テーブル名・列名の後ろに論理名（DB のコメント。SQL Server は拡張プロパティ `MS_Description`、Oracle は `COMMENT ON`）を薄く出します。VS Code の `editor.inlayHints.enabled` でも切り替えられます。"
+        },
+        "sqlEditorTool.logicalNames.headers": {
+          "type": "string",
+          "enum": [
+            "both",
+            "logical",
+            "physical"
+          ],
+          "enumDescriptions": [
+            "物理名の下に論理名を出す",
+            "論理名を出す（物理名はツールチップ）",
+            "物理名だけを出す"
+          ],
+          "default": "both",
+          "markdownDescription": "結果の表の列見出しに出す名前。画面の「列名」の切り替えでも変えられます。"
         }
       }
     }

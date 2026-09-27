@@ -22,6 +22,8 @@ export function ColumnSettings({
 }) {
   const { columns, primaryKey, candidates, settingsSaved } = view;
   const hasPrimaryKey = primaryKey.length > 0;
+  /** 論理名（D-40）のある列があれば、論理名の欄を出す */
+  const logical = columns.some((c) => c.logicalName);
   // 設定を保存したことがなければ、候補を日付にした状態から始める
   const [ymd, setYmd] = useState(
     () =>
@@ -63,6 +65,7 @@ export function ColumnSettings({
           <thead>
             <tr>
               <th>列名</th>
+              {logical && <th>論理名</th>}
               <th>DB の型</th>
               <th>意味</th>
               <th>キー</th>
@@ -72,6 +75,9 @@ export function ColumnSettings({
             {columns.map((column) => (
               <tr key={column.name}>
                 <td className="name">{column.name}</td>
+                {logical && (
+                  <td title={column.comment}>{column.logicalName ?? ""}</td>
+                )}
                 <td className="status">{columnTypeLabel(column.type)}</td>
                 <td>
                   {canBeYmd(column) ? (

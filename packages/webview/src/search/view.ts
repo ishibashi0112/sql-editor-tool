@@ -8,7 +8,7 @@ import type {
   SearchConnection,
   ToSearchView,
 } from "@sql-editor-tool/host";
-import { searchObjects } from "./match";
+import { type SearchHit, searchObjects } from "./match";
 
 export type SearchApi = {
   post(message: FromSearchView): void;
@@ -31,7 +31,7 @@ const ICONS = {
 export function mountSearchView(root: HTMLElement, api: SearchApi): void {
   root.innerHTML = `
     <div class="box">
-      <input type="text" placeholder="テーブル・ビューを検索" spellcheck="false" autocomplete="off" aria-label="テーブル・ビューを検索" />
+      <input type="text" placeholder="テーブル・ビューを検索（名前・論理名）" spellcheck="false" autocomplete="off" aria-label="テーブル・ビューを検索" />
       <button type="button" class="clear" title="消す" aria-label="消す" hidden>×</button>
     </div>
     <div class="results" role="listbox" aria-label="検索結果"></div>`;
@@ -74,7 +74,9 @@ export function mountSearchView(root: HTMLElement, api: SearchApi): void {
       return;
     }
     if (query.trim() === "") {
-      results.append(note("接続中の DB のテーブル名・ビュー名で検索します"));
+      results.append(
+        note("接続中の DB のテーブル名・ビュー名と、その論理名で検索します"),
+      );
       for (const connection of connections) {
         results.append(statusLine(connection, api));
       }
@@ -89,7 +91,7 @@ export function mountSearchView(root: HTMLElement, api: SearchApi): void {
       found += total;
       results.append(groupHeader(connection, total));
       for (const hit of hits) {
-        const row = resultRow(hit.object, hit.highlight);
+        const row = resultRow(hit);
         const item: Item = {
           connectionId: connection.id,
           object: hit.object,
@@ -183,28 +185,28 @@ function groupHeader(connection: SearchConnection, total: number): HTMLElement {
   return div;
 }
 
-function resultRow(
-  object: SchemaObject,
-  highlight: readonly [number, number] | null,
-): HTMLElement {
+function resultRow(hit: SearchHit): HTMLElement {
+  const { object } = hit;
   const row = document.createElement("div");
   row.className = "item";
   row.setAttribute("role", "option");
-  row.title = `${object.schema}.${object.name}`;
+  row.title = [
+    `${object.schema}.${object.name}`,
+    object.logicalName,
+    object.comment,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const icon = document.createElement("span");
   icon.className = `icon ${object.kind}`;
   icon.innerHTML = ICONS[object.kind];
 
-  const name = document.createElement("span");
-  name.className = "name";
-  if (highlight) {
-    const [start, end] = highlight;
-    const mark = document.createElement("mark");
-    mark.textContent = object.name.slice(start, end);
-    name.append(object.name.slice(0, start), mark, object.name.slice(end));
-  } else {
-    name.textContent = object.name;
+  const name = marked("name", object.name, hit.highlight);
+  row.append(icon, name);
+  // 論理名（D-40）は名前の横に出す
+  if (object.logicalName) {
+    row.append(marked("logical", object.logicalName, hit.logicalHighlight));
   }
 
   const detail = document.createElement("span");
@@ -212,8 +214,27 @@ function resultRow(
   detail.textContent =
     object.kind === "view" ? `${object.schema} · ビュー` : object.schema;
 
-  row.append(icon, name, detail);
+  row.append(detail);
   return row;
+}
+
+/** 一致した範囲を強調した文字列 */
+function marked(
+  className: string,
+  text: string,
+  highlight: readonly [number, number] | null,
+): HTMLElement {
+  const span = document.createElement("span");
+  span.className = className;
+  if (highlight) {
+    const [start, end] = highlight;
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(start, end);
+    span.append(text.slice(0, start), mark, text.slice(end));
+  } else {
+    span.textContent = text;
+  }
+  return span;
 }
 
 function statusLine(connection: SearchConnection, api: SearchApi): HTMLElement {

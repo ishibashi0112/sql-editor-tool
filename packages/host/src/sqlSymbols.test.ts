@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { DemoSession } from "./demo/demoSession";
 import { SchemaCache } from "./sqlCompletion";
-import { resolveSymbols, type SqlSymbol, symbolAt } from "./sqlSymbols";
+import {
+  describeResultColumns,
+  resolveSymbols,
+  type SqlSymbol,
+  symbolAt,
+} from "./sqlSymbols";
 
 // デモ接続の架空のテーブル（APP.ORDERS＝受注明細、CUSTOMERS＝得意先、ITEMS＝品目、V_OPEN_ORDERS）
 const cache = () =>
@@ -104,5 +109,39 @@ describe("symbolAt", () => {
     });
     expect(await at("ORDERS")).toMatchObject({ kind: "table" });
     expect(await at("SELECT")).toBeNull();
+  });
+});
+
+describe("describeResultColumns", () => {
+  test("FROM・JOIN のテーブルに 1 つだけある列の論理名。別名の列・式・論理名が割れる列は付けない", async () => {
+    const text = `/* @report {} */
+SELECT o.ORDER_NO, o.QTY AS 数, c.CUST_NAME, o.CUST_CD, PREF
+FROM ORDERS o JOIN CUSTOMERS c ON c.CUST_CD = o.CUST_CD
+WHERE EXISTS (SELECT 1 FROM ITEMS i WHERE i.ITEM_CD = o.ITEM_CD)`;
+    const notes = await describeResultColumns({
+      dialect: "mssql",
+      text,
+      cache: cache(),
+      names: [
+        "ORDER_NO",
+        "数",
+        "CUST_NAME",
+        "CUST_CD",
+        "PREF",
+        "ITEM_NAME",
+        "",
+      ],
+    });
+    expect(notes).toEqual([
+      { logicalName: "受注番号" },
+      {},
+      { logicalName: "得意先名" },
+      // ORDERS と CUSTOMERS の両方にあるが、論理名が同じ
+      { logicalName: "得意先コード" },
+      { logicalName: "都道府県" },
+      // 副問い合わせのテーブルの列も探す
+      { logicalName: "品目名" },
+      {},
+    ]);
   });
 });

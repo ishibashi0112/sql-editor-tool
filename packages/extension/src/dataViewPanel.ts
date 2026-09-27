@@ -9,12 +9,15 @@ import {
   type FromWebview,
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
+import { connectPrefs } from "./viewPrefs";
 
 export type OpenDataViewInput = {
   extensionUri: vscode.Uri;
   connectionName: string;
   session: DbSession;
   table: TableRef;
+  /** テーブルの論理名（D-40）。タブと画面上部に出す */
+  logicalName?: string | undefined;
   demo: boolean;
   /** 列の設定（D-36）を保存する場所 */
   state: vscode.Memento;
@@ -35,7 +38,7 @@ export function openDataView(input: OpenDataViewInput): void {
   const webviewRoot = vscode.Uri.joinPath(extensionUri, "dist", "webview");
   const panel = vscode.window.createWebviewPanel(
     "sqlEditorTool.dataView",
-    table.name,
+    input.logicalName ? `${table.name}（${input.logicalName}）` : table.name,
     vscode.ViewColumn.Active,
     {
       enableScripts: true,
@@ -49,6 +52,7 @@ export function openDataView(input: OpenDataViewInput): void {
   const controller = new DataViewController({
     session,
     table,
+    logicalName: input.logicalName,
     settings: readSettings(),
     demo: input.demo,
     post: (message) => void panel.webview.postMessage(message),
@@ -78,8 +82,10 @@ export function openDataView(input: OpenDataViewInput): void {
       });
     },
   );
+  const prefs = connectPrefs(panel.webview);
   panel.onDidDispose(() => {
     subscription.dispose();
+    prefs.dispose();
     controller.dispose();
   });
 }

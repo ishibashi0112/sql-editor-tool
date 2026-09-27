@@ -6,6 +6,7 @@ import {
   type ColumnInfo,
   type DialectName,
   getDialect,
+  type LogicalName,
   type NameReference,
   type SqlOutline,
   sqlOutline,
@@ -78,6 +79,38 @@ export async function symbolAt(
     symbols.find((s) => s.start <= input.offset && input.offset <= s.end) ??
     null
   );
+}
+
+/**
+ * 結果の列の論理名（レポート・.sql の実行の結果の列見出し、D-40）。結果の列がどのテーブルのものかは分からないので、
+ * SQL の FROM・JOIN のテーブル（副問い合わせのものも含む）に同じ名前の列が 1 つだけあれば、その論理名にする
+ * （いくつもあって論理名が違えば付けない）。別名を付けた列や式の列は、ふつうは見つからないので付かない
+ */
+export async function describeResultColumns(input: {
+  dialect: DialectName;
+  text: string;
+  cache: SchemaCache;
+  names: readonly string[];
+}): Promise<LogicalName[]> {
+  const outline = sqlOutline(getDialect(input.dialect), input.text);
+  const objects = await input.cache.objects();
+  const tables = new StatementTables(outline, objects, input.cache);
+  const described = (
+    await Promise.all(outline.statements.map((_, i) => tables.of(i)))
+  ).flat();
+  return input.names.map((name) => {
+    const found = described.flatMap((t) => {
+      const column = findColumn(t.description, name);
+      return column ? [column] : [];
+    });
+    const labels = new Set(found.map((c) => c.logicalName));
+    const [first] = found;
+    if (!first || labels.size !== 1) return {};
+    const note: LogicalName = {};
+    if (first.logicalName) note.logicalName = first.logicalName;
+    if (first.comment) note.comment = first.comment;
+    return note;
+  });
 }
 
 /** 文ごとの FROM・JOIN のテーブルと、その列（必要になったときに DB から取る。取れなければ除く） */

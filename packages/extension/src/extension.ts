@@ -27,14 +27,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const search = new TableSearchView(context.extensionUri, store, manager);
   const recent = new RecentReports(context.globalState);
   const reportTree = new ReportTree();
+  const editing = new SqlEditing(store, manager, context.globalState);
   const reports = new ReportPanels({
     extensionUri: context.extensionUri,
     store,
     sessions: manager,
     recent,
     state: context.globalState,
+    editing,
   });
-  const editing = new SqlEditing(store, manager, context.globalState);
   const openReport = (uri: vscode.Uri) =>
     reports.open(uri).catch((error: unknown) => {
       void vscode.window.showErrorMessage(
@@ -121,6 +122,7 @@ export function activate(context: vscode.ExtensionContext): void {
             connectionName: node.profile.name,
             session,
             table: node.table,
+            logicalName: node.logicalName,
             demo: node.profile.driver === "demo",
             state: context.globalState,
           });

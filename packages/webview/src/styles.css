@@ -34,6 +34,13 @@ body {
   margin-right: 8px;
 }
 
+/* テーブルの論理名（D-40） */
+.title-logical {
+  margin-left: 8px;
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground, #57606a);
+}
+
 .toolbar .spacer {
   flex: 1;
 }
@@ -401,4 +408,62 @@ body.vscode-high-contrast .form input[type="date"] {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* 列見出し（D-40）。両方を出すときは、物理名の下に論理名を小さく出す */
+.col-head {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.col-name,
+.col-logical {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-logical {
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground, #57606a);
+}
+
+/* 列見出しの名前の切り替え（物理名・論理名・両方） */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--vscode-panel-border, #d0d7de);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.segmented-label {
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #57606a);
+}
+
+.segmented button {
+  border: none;
+  border-left: 1px solid var(--vscode-panel-border, #d0d7de);
+  border-radius: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--vscode-foreground, #1f2328);
+}
+
+.segmented button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, #e5e5e5);
+}
+
+.segmented button.on,
+.segmented button.on:hover:not(:disabled) {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
 }

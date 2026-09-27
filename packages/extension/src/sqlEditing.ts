@@ -1,21 +1,27 @@
-// .sql の編集の支援（D-39）：テーブル名・列名・キーワードの入力補完と、補完に使う接続を選ぶステータスバー。
+// .sql の編集の支援（D-39、D-40）：テーブル名・列名・キーワードの入力補完、論理名のホバーとインレイヒント、
+// 補完・実行に使う接続を選ぶステータスバー。
 // 先頭にレポートの設定のコメントがある .sql は、そのコメントの接続を使う（D-29）。
 // それ以外の .sql は、ファイルごとに選んだ接続を VS Code の中に覚えておく（ファイルには書かない）。
 // 選んでいなければ、つないでいる接続が 1 つならそれを使う。未接続なら、補完のときに接続する。
 // ほかの拡張機能が .sql を別の言語（ID が sql でないもの）として扱うことがあるので、拡張子でも判定する
 
 import {
+  columnTypeLabel,
   completionContext,
   type DialectName,
   getDialect,
   hasReportHeader,
   parseReportConfig,
+  shortLogicalName,
   writeReportConfig,
 } from "@sql-editor-tool/core";
 import {
   type CompletionEntry,
   completeSql,
+  resolveSymbols,
   SchemaCache,
+  type SqlSymbol,
+  symbolAt,
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
@@ -29,19 +35,27 @@ const FILE_CONNECTIONS_KEY = "sqlEditorTool.sqlConnections";
  * 補完する文書。言語 ID が sql のもの（VS Code の標準）と、拡張子が .sql のもの
  * （SQL の拡張機能が別の言語 ID を付けていても動くように）
  */
-const SELECTOR: vscode.DocumentSelector = [
+export const SQL_SELECTOR: vscode.DocumentSelector = [
   { language: "sql" },
   { pattern: "**/*.sql" },
   { pattern: "**/*.SQL" },
 ];
 
-function isSqlDocument(document: vscode.TextDocument | undefined): boolean {
+/** 論理名のインレイヒントを出すか（D-40） */
+const HINTS_SETTING = "logicalNames.inlayHints";
+
+/** 接続できなかった後、ホバーとインレイヒントのために接続し直すまでの間（ミリ秒） */
+const RETRY_AFTER_MS = 60_000;
+
+export function isSqlDocument(
+  document: vscode.TextDocument | undefined,
+): boolean {
   if (!document) return false;
   return document.languageId === "sql" || /\.sql$/i.test(document.uri.path);
 }
 
-/** この .sql の補完に使う接続。auto は、選んでいないので自動で決めたもの */
-type Resolved = {
+/** この .sql の補完・実行に使う接続。auto は、選んでいないので自動で決めたもの */
+export type SqlConnection = {
   name: string | null;
   profile: ConnectionProfile | undefined;
   auto: boolean;
@@ -64,6 +78,9 @@ export class SqlEditing implements vscode.Disposable {
   private readonly caches = new Map<string, SchemaCache>();
   /** 接続できなかったことは、同じ接続では 1 回だけ知らせる */
   private readonly warned = new Set<string>();
+  /** 接続の ID → ホバー・インレイヒントのために接続して失敗した時刻（しばらくは接続し直さない） */
+  private readonly failedAt = new Map<string, number>();
+  private readonly hintsChanged = new vscode.EventEmitter<void>();
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -81,16 +98,47 @@ export class SqlEditing implements vscode.Disposable {
     this.disposables.push(
       this.status,
       vscode.languages.registerCompletionItemProvider(
-        SELECTOR,
+        SQL_SELECTOR,
         {
           provideCompletionItems: (document, position) =>
             this.complete(document, position),
         },
         ".",
       ),
+      vscode.languages.registerHoverProvider(SQL_SELECTOR, {
+        provideHover: (document, position, token) =>
+          this.hover(document, position, token),
+      }),
+      vscode.languages.registerInlayHintsProvider(SQL_SELECTOR, {
+        onDidChangeInlayHints: this.hintsChanged.event,
+        provideInlayHints: (document, range, token) =>
+          this.inlayHints(document, range, token),
+      }),
+      this.hintsChanged,
       vscode.commands.registerCommand("sqlEditorTool.chooseSqlConnection", () =>
         this.choose(),
       ),
+      vscode.commands.registerCommand(
+        "sqlEditorTool.toggleLogicalNameHints",
+        async () => {
+          const config = vscode.workspace.getConfiguration("sqlEditorTool");
+          const next = !config.get<boolean>(HINTS_SETTING, true);
+          await config.update(
+            HINTS_SETTING,
+            next,
+            vscode.ConfigurationTarget.Global,
+          );
+          void vscode.window.setStatusBarMessage(
+            next ? "論理名を表示します" : "論理名を表示しません",
+            3000,
+          );
+        },
+      ),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration(`sqlEditorTool.${HINTS_SETTING}`)) {
+          this.hintsChanged.fire();
+        }
+      }),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateStatus()),
       // レポートの先頭のコメントで接続を書き換えたとき
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -103,8 +151,11 @@ export class SqlEditing implements vscode.Disposable {
         this.clear();
         this.updateStatus();
       }),
-      // つないでいる接続が変わると、自動で選ぶ接続も変わる
-      sessions.onDidChange(() => this.updateStatus()),
+      // つないでいる接続が変わると、自動で選ぶ接続も変わる。つないだら論理名を出せる
+      sessions.onDidChange(() => {
+        this.updateStatus();
+        this.hintsChanged.fire();
+      }),
     );
     this.updateStatus();
   }
@@ -114,8 +165,14 @@ export class SqlEditing implements vscode.Disposable {
     for (const [id, cache] of this.caches) {
       if (profileId === undefined || id === profileId) cache.clear();
     }
-    if (profileId === undefined) this.warned.clear();
-    else this.warned.delete(profileId);
+    if (profileId === undefined) {
+      this.warned.clear();
+      this.failedAt.clear();
+    } else {
+      this.warned.delete(profileId);
+      this.failedAt.delete(profileId);
+    }
+    this.hintsChanged.fire();
   }
 
   dispose(): void {
@@ -123,7 +180,7 @@ export class SqlEditing implements vscode.Disposable {
   }
 
   /** この .sql の補完に使う接続 */
-  private profileFor(document: vscode.TextDocument): Resolved {
+  connectionFor(document: vscode.TextDocument): SqlConnection {
     const profiles = this.store.list();
     const byName = (name: string) => profiles.find((p) => p.name === name);
     const text = document.getText();
@@ -163,7 +220,7 @@ export class SqlEditing implements vscode.Disposable {
     return this.state.get<Record<string, string>>(FILE_CONNECTIONS_KEY, {});
   }
 
-  private cacheFor(profile: ConnectionProfile): SchemaCache {
+  cacheFor(profile: ConnectionProfile): SchemaCache {
     let cache = this.caches.get(profile.id);
     if (!cache) {
       cache = new SchemaCache(() => this.sessions.get(profile));
@@ -175,14 +232,10 @@ export class SqlEditing implements vscode.Disposable {
   private async complete(
     document: vscode.TextDocument,
     position: vscode.Position,
-  ): Promise<vscode.CompletionItem[]> {
-    const { profile } = this.profileFor(document);
+  ): Promise<vscode.CompletionList> {
+    const { profile } = this.connectionFor(document);
     const offset = document.offsetAt(position);
-    const dialect: DialectName = profile
-      ? profile.driver === "demo"
-        ? profile.dialect
-        : profile.driver
-      : "mssql";
+    const dialect = dialectOf(profile);
     try {
       const text = document.getText();
       const entries = await completeSql({
@@ -193,9 +246,16 @@ export class SqlEditing implements vscode.Disposable {
       });
       // 接続が決まらず、テーブル名・列名を出す位置なら、接続を選ぶ項目を出す
       if (!profile && needsSchema(dialect, text, offset)) {
-        return [chooseItem(), ...entries.map(toItem)];
+        return new vscode.CompletionList([
+          chooseItem(),
+          ...entries.map(toItem),
+        ]);
       }
-      return entries.map(toItem);
+      // キーワードの位置では、打った論理名で列を出すので、打つたびに候補を作り直す（D-40）
+      const general =
+        profile !== undefined &&
+        completionContext(getDialect(dialect), text, offset).kind === "general";
+      return new vscode.CompletionList(entries.map(toItem), general);
     } catch (error) {
       if (profile && !this.warned.has(profile.id)) {
         this.warned.add(profile.id);
@@ -203,8 +263,98 @@ export class SqlEditing implements vscode.Disposable {
           `補完のために「${profile.name}」の情報を取れませんでした：${error instanceof Error ? error.message : String(error)}`,
         );
       }
+      return new vscode.CompletionList([]);
+    }
+  }
+
+  /**
+   * ホバー・インレイヒントに使うテーブルの一覧と列。補完と同じ接続を使い、未接続なら接続する。
+   * 接続できなかったら、しばらくは接続し直さない（知らせも出さない。ヒントは打つたびに求められるため）
+   */
+  private symbolSource(
+    document: vscode.TextDocument,
+  ): { dialect: DialectName; cache: SchemaCache; id: string } | null {
+    const { profile } = this.connectionFor(document);
+    if (!profile) return null;
+    const failed = this.failedAt.get(profile.id);
+    if (
+      failed !== undefined &&
+      !this.sessions.isOpen(profile.id) &&
+      Date.now() - failed < RETRY_AFTER_MS
+    ) {
+      return null;
+    }
+    return {
+      dialect: dialectOf(profile),
+      cache: this.cacheFor(profile),
+      id: profile.id,
+    };
+  }
+
+  private async hover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    token: vscode.CancellationToken,
+  ): Promise<vscode.Hover | undefined> {
+    const source = this.symbolSource(document);
+    if (!source) return undefined;
+    try {
+      const symbol = await symbolAt({
+        dialect: source.dialect,
+        text: document.getText(),
+        cache: source.cache,
+        offset: document.offsetAt(position),
+      });
+      if (!symbol || token.isCancellationRequested) return undefined;
+      return new vscode.Hover(
+        symbolMarkdown(symbol),
+        new vscode.Range(
+          document.positionAt(symbol.start),
+          document.positionAt(symbol.end),
+        ),
+      );
+    } catch {
+      this.failedAt.set(source.id, Date.now());
+      return undefined;
+    }
+  }
+
+  /** 名前の後ろに論理名を出す（D-40）。別名が論理名と同じなら出さない */
+  private async inlayHints(
+    document: vscode.TextDocument,
+    range: vscode.Range,
+    token: vscode.CancellationToken,
+  ): Promise<vscode.InlayHint[]> {
+    const enabled = vscode.workspace
+      .getConfiguration("sqlEditorTool")
+      .get<boolean>(HINTS_SETTING, true);
+    const source = enabled ? this.symbolSource(document) : null;
+    if (!source) return [];
+    let symbols: SqlSymbol[];
+    try {
+      symbols = await resolveSymbols({
+        dialect: source.dialect,
+        text: document.getText(),
+        cache: source.cache,
+        from: document.offsetAt(range.start),
+        to: document.offsetAt(range.end),
+      });
+    } catch {
+      this.failedAt.set(source.id, Date.now());
       return [];
     }
+    if (token.isCancellationRequested) return [];
+    return symbols.flatMap((symbol) => {
+      const name = logicalNameOf(symbol);
+      if (!name || symbol.alias === name) return [];
+      const hint = new vscode.InlayHint(
+        document.positionAt(symbol.end),
+        shortLogicalName(name),
+      );
+      hint.paddingLeft = true;
+      hint.tooltip = symbolMarkdown(symbol);
+      return [hint];
+    });
   }
 
   private updateStatus(): void {
@@ -213,7 +363,7 @@ export class SqlEditing implements vscode.Disposable {
       this.status.hide();
       return;
     }
-    const { name, profile, auto } = this.profileFor(document);
+    const { name, profile, auto } = this.connectionFor(document);
     if (profile) {
       this.status.text = `$(database) ${profile.name}${auto ? "（自動）" : ""}`;
       this.status.tooltip = auto
@@ -241,7 +391,7 @@ export class SqlEditing implements vscode.Disposable {
       );
       return;
     }
-    const resolved = this.profileFor(document);
+    const resolved = this.connectionFor(document);
     const { report } = resolved;
     const current = resolved.auto ? null : resolved.name;
     const none = {
@@ -330,14 +480,63 @@ function chooseItem(): vscode.CompletionItem {
 }
 
 function toItem(entry: CompletionEntry): vscode.CompletionItem {
-  // 主キーの列は 🔑 を付ける（絞り込みは名前だけで行う）
+  // 主キーの列は 🔑 を付ける（絞り込みは名前と論理名で行う）
   const label = entry.kind === "key" ? `🔑 ${entry.label}` : entry.label;
   const item = new vscode.CompletionItem(
-    { label, description: entry.detail },
+    {
+      label,
+      // 論理名は名前のすぐ横に出す（D-40）
+      ...(entry.logicalName ? { detail: `  ${entry.logicalName}` } : {}),
+      description: entry.detail,
+    },
     KINDS[entry.kind],
   );
   item.insertText = entry.insertText;
   item.sortText = entry.sortText;
-  item.filterText = entry.label;
+  item.filterText = entry.filterText ?? entry.label;
+  if (entry.comment) item.documentation = entry.comment;
   return item;
+}
+
+function dialectOf(profile: ConnectionProfile | undefined): DialectName {
+  if (!profile) return "mssql";
+  return profile.driver === "demo" ? profile.dialect : profile.driver;
+}
+
+function logicalNameOf(symbol: SqlSymbol): string | undefined {
+  return symbol.kind === "table"
+    ? symbol.object.logicalName
+    : symbol.column.logicalName;
+}
+
+/** ホバーとインレイヒントのツールチップ：論理名・物理名・型・コメント */
+function symbolMarkdown(symbol: SqlSymbol): vscode.MarkdownString {
+  const md = new vscode.MarkdownString();
+  const logical = logicalNameOf(symbol);
+  if (symbol.kind === "table") {
+    const { object } = symbol;
+    const what = object.kind === "view" ? "ビュー" : "テーブル";
+    md.appendMarkdown(logical ? `**${escapeMarkdown(logical)}**　` : "");
+    md.appendMarkdown(`${code(`${object.schema}.${object.name}`)}（${what}）`);
+    if (object.comment) md.appendText(`\n\n${object.comment}`);
+  } else {
+    const { column, table, isKey } = symbol;
+    md.appendMarkdown(logical ? `**${escapeMarkdown(logical)}**　` : "");
+    md.appendMarkdown(code(column.name));
+    md.appendText(
+      `\n${columnTypeLabel(column.type)}${isKey ? "・🔑 主キー" : ""}　${table.logicalName ? `${table.logicalName}（${table.schema}.${table.name}）` : `${table.schema}.${table.name}`} の列`,
+    );
+    if (column.comment) md.appendText(`\n\n${column.comment}`);
+  }
+  return md;
+}
+
+/** Markdown の記号を文字として出す */
+function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_{}[\]()#+\-.!|<>~]/g, "\\$&");
+}
+
+/** Markdown のコード（中では \ で記号を消せないので、` だけ置き換える） */
+function code(text: string): string {
+  return `\`${text.replaceAll("`", "'")}\``;
 }
