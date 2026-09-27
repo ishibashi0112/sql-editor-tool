@@ -53,8 +53,10 @@ export type ToReport =
   | { type: "preview"; preview: SqlPreview }
   /** 選択肢の候補が届いた・取得に失敗した */
   | { type: "options"; name: string; state: ReportOptionsState }
-  /** 結果の列（実行するたびに、行より先に届く） */
+  /** 結果の列（実行するたびに、行より先に届く。論理名が分かったら送り直す） */
   | { type: "columns"; queryId: number; columns: ViewColumn[] }
+  /** 入力欄にカーソルを置く（値がなくて実行できなかったとき） */
+  | { type: "focusParam"; name: string }
   | QueryMessage;
 
 export type FromReport =

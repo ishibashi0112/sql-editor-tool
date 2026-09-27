@@ -81,6 +81,10 @@ export class SqlEditing implements vscode.Disposable {
   /** 接続の ID → ホバー・インレイヒントのために接続して失敗した時刻（しばらくは接続し直さない） */
   private readonly failedAt = new Map<string, number>();
   private readonly hintsChanged = new vscode.EventEmitter<void>();
+  private readonly connectionChanged =
+    new vscode.EventEmitter<vscode.TextDocument>();
+  /** .sql の接続を選び直したとき（実行の結果のタブの接続も変える） */
+  readonly onDidChangeConnection = this.connectionChanged.event;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -93,7 +97,7 @@ export class SqlEditing implements vscode.Disposable {
       vscode.StatusBarAlignment.Right,
       100,
     );
-    this.status.name = "SQL の補完に使う接続";
+    this.status.name = "SQL の補完・実行に使う接続";
     this.status.command = "sqlEditorTool.chooseSqlConnection";
     this.disposables.push(
       this.status,
@@ -115,8 +119,10 @@ export class SqlEditing implements vscode.Disposable {
           this.inlayHints(document, range, token),
       }),
       this.hintsChanged,
-      vscode.commands.registerCommand("sqlEditorTool.chooseSqlConnection", () =>
-        this.choose(),
+      this.connectionChanged,
+      vscode.commands.registerCommand(
+        "sqlEditorTool.chooseSqlConnection",
+        () => void this.choose(),
       ),
       vscode.commands.registerCommand(
         "sqlEditorTool.toggleLogicalNameHints",
@@ -367,29 +373,34 @@ export class SqlEditing implements vscode.Disposable {
     if (profile) {
       this.status.text = `$(database) ${profile.name}${auto ? "（自動）" : ""}`;
       this.status.tooltip = auto
-        ? `SQL の補完に使う接続：${profile.name}（${describe(profile)}）。つないでいる接続を自動で使っています。クリックで選ぶ`
-        : `SQL の補完に使う接続：${profile.name}（${describe(profile)}）。クリックで変える`;
+        ? `SQL の補完・実行に使う接続：${profile.name}（${describe(profile)}）。つないでいる接続を自動で使っています。クリックで選ぶ`
+        : `SQL の補完・実行に使う接続：${profile.name}（${describe(profile)}）。クリックで変える`;
     } else if (name) {
       this.status.text = `$(warning) 接続「${name}」がありません`;
-      this.status.tooltip = "クリックして、補完に使う接続を選び直す";
+      this.status.tooltip = "クリックして、補完・実行に使う接続を選び直す";
     } else {
       this.status.text = "$(database) 接続を選ぶ";
       this.status.tooltip =
-        "SQL の補完に使う接続を選ぶ（テーブル名・列名を補完します）";
+        "SQL の補完・実行に使う接続を選ぶ（テーブル名・列名の補完と、Ctrl+Enter での実行に使います）";
     }
     this.status.show();
   }
 
   /** 補完に使う接続を選ぶ。先頭に設定のコメントがあればコメントに書き、なければファイルごとに覚える */
-  private async choose(): Promise<void> {
-    const document = vscode.window.activeTextEditor?.document;
-    if (!document || !isSqlDocument(document)) return;
+  /**
+   * 補完・実行に使う接続を選ぶ。先頭に設定のコメントがあればコメントに書き、なければファイルごとに覚える。
+   * 選んだら true
+   */
+  async choose(
+    document = vscode.window.activeTextEditor?.document,
+  ): Promise<boolean> {
+    if (!document || !isSqlDocument(document)) return false;
     const profiles = this.store.list();
     if (profiles.length === 0) {
       void vscode.window.showWarningMessage(
         "接続がありません。サイドバーの「接続」で接続を追加してください",
       );
-      return;
+      return false;
     }
     const resolved = this.connectionFor(document);
     const { report } = resolved;
@@ -411,10 +422,10 @@ export class SqlEditing implements vscode.Disposable {
       {
         title: report
           ? "このレポートの接続（先頭のコメントに書きます）"
-          : "この .sql の補完に使う接続",
+          : "この .sql の補完・実行に使う接続",
       },
     );
-    if (!picked) return;
+    if (!picked) return false;
     if (report) {
       if (picked.profile) await writeConnection(document, picked.profile.name);
     } else {
@@ -424,6 +435,9 @@ export class SqlEditing implements vscode.Disposable {
       await this.state.update(FILE_CONNECTIONS_KEY, map);
     }
     this.updateStatus();
+    this.hintsChanged.fire();
+    this.connectionChanged.fire(document);
+    return true;
   }
 }
 
@@ -498,7 +512,7 @@ function toItem(entry: CompletionEntry): vscode.CompletionItem {
   return item;
 }
 
-function dialectOf(profile: ConnectionProfile | undefined): DialectName {
+export function dialectOf(profile: ConnectionProfile | undefined): DialectName {
   if (!profile) return "mssql";
   return profile.driver === "demo" ? profile.dialect : profile.driver;
 }

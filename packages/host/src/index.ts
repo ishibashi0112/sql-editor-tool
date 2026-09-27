@@ -31,6 +31,18 @@ export {
   toViewColumns,
 } from "./reportView";
 export type {
+  FromResults,
+  ResultTab,
+  ToResults,
+} from "./resultsProtocol";
+export {
+  MAX_RESULT_TABS,
+  ResultsController,
+  type ResultsDeps,
+  type RunRequest,
+  type RunStatement,
+} from "./resultsView";
+export type {
   FromSearchView,
   SearchConnection,
   ToSearchView,

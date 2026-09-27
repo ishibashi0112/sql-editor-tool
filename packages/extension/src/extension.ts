@@ -12,6 +12,7 @@ import {
   reportsFolder,
 } from "./reports";
 import { type ReportNode, ReportTree } from "./reportTree";
+import { RESULTS_VIEW_ID, ResultsPanel } from "./resultsPanel";
 import { TableSearchView } from "./searchView";
 import { SessionManager } from "./sessions";
 import { SqlEditing } from "./sqlEditing";
@@ -36,6 +37,14 @@ export function activate(context: vscode.ExtensionContext): void {
     state: context.globalState,
     editing,
   });
+  // .sql の実行と「SQL の結果」のパネル（D-41）
+  const results = new ResultsPanel({
+    extensionUri: context.extensionUri,
+    store,
+    sessions: manager,
+    editing,
+    state: context.globalState,
+  });
   const openReport = (uri: vscode.Uri) =>
     reports.open(uri).catch((error: unknown) => {
       void vscode.window.showErrorMessage(
@@ -53,6 +62,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.window.registerWebviewViewProvider("sqlEditorTool.search", search, {
       // 入力中の文字と結果を、サイドバーを切り替えても保つ
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    results,
+    vscode.window.registerWebviewViewProvider(RESULTS_VIEW_ID, results, {
+      // 取得した行を、ターミナルなどに切り替えても保つ
       webviewOptions: { retainContextWhenHidden: true },
     }),
     reportTree,

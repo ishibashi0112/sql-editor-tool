@@ -135,6 +135,31 @@ describe("ReportController", () => {
     expect(ofType("queryDone")[0]).toMatchObject({ truncated: true });
   });
 
+  test("executeIfReady：必須の入力欄が空なら実行せず、その入力欄を知らせる", async () => {
+    const { controller, ofType, requests } = setup();
+    await controller.handle({ type: "ready" });
+    expect(await controller.executeIfReady()).toBe("得意先");
+    expect(ofType("focusParam")).toEqual([
+      { type: "focusParam", name: "得意先" },
+    ]);
+    expect(requests).toHaveLength(0);
+    await controller.handle({
+      type: "valuesChanged",
+      values: { 得意先: "C00027" },
+    });
+    expect(await controller.executeIfReady()).toBeNull();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("executeIfReady：入力欄のない SQL の誤りは、実行してエラーとして出す", async () => {
+    const { controller, ofType } = setup({
+      text: "UPDATE [APP].[ORDERS] SET [QTY] = 1",
+    });
+    await controller.handle({ type: "ready" });
+    expect(await controller.executeIfReady()).toBeNull();
+    expect(ofType("queryFailed")[0]?.message).toContain("SELECT か WITH");
+  });
+
   test("結果の列に論理名を付けて、列見出しを送り直す（D-40）", async () => {
     const describeColumns = vi.fn(
       async (_text: string, names: readonly string[]) =>

@@ -1,4 +1,5 @@
-// 開発用ページをビルドする。出力は dev/dist（コミットしない）。index.html（データビュー）、search.html（テーブル検索）、report.html（レポート）をブラウザで開く
+// 開発用ページをビルドする。出力は dev/dist（コミットしない）。index.html（データビュー）、search.html（テーブル検索）、
+// report.html（レポート）、results.html（SQL の結果のパネル）をブラウザで開く
 import { build } from "esbuild";
 
 await build({
@@ -6,6 +7,7 @@ await build({
     new URL("./dev.tsx", import.meta.url).pathname,
     new URL("./search.ts", import.meta.url).pathname,
     new URL("./report.tsx", import.meta.url).pathname,
+    new URL("./results.tsx", import.meta.url).pathname,
   ],
   bundle: true,
   format: "iife",

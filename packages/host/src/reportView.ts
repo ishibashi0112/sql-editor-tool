@@ -144,6 +144,21 @@ export class ReportController {
     }
   }
 
+  /**
+   * 値がそろっていれば実行する（.sql を Ctrl+Enter で実行したとき）。必須の入力欄が空など、
+   * 入力欄の値で実行できなければ、その入力欄にカーソルを置くよう画面に伝え、その名前を返す
+   */
+  async executeIfReady(): Promise<string | null> {
+    const preview = this.preview();
+    const name = preview.ok ? undefined : preview.columnKey;
+    if (name !== undefined && this.params.some((p) => p.name === name)) {
+      this.post({ type: "focusParam", name });
+      return name;
+    }
+    await this.execute("all");
+    return null;
+  }
+
   /** ファイルが書き換わった・接続が変わったとき。入力した値は、同じ名前の入力欄に残す */
   update(text: string, connection: ReportConnection | null): void {
     // 接続が変わったら、前の接続で推定した種類は使わない
