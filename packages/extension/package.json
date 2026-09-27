@@ -406,21 +406,28 @@
         "sqlEditorTool.logicalNames.style": {
           "type": "string",
           "enum": [
+            "lineEndTag",
+            "lineEnd",
             "subtle",
             "bracket",
             "tag",
-            "lineEnd",
             "inlayHint"
           ],
           "enumDescriptions": [
-            "薄い色・斜体・少し小さく",
-            "薄い色で ‹論理名› と括る",
-            "色の付いた小さなラベル",
-            "行の終わりにまとめる",
-            "VS Code のインレイヒント（0.8.0 の見た目）"
+            "行の終わりに、列ごとの色の付いた札で並べる（コードの形はそのまま）",
+            "行の終わりに、薄い字でまとめる",
+            "名前の後ろに、薄い色・斜体・少し小さく",
+            "名前の後ろに、薄い色で ‹論理名› と括る",
+            "名前の後ろに、色の付いた小さな札",
+            "名前の後ろに、VS Code のインレイヒント（0.8.0 の見た目）"
           ],
-          "default": "subtle",
-          "markdownDescription": "`.sql` の論理名の見た目。色は `workbench.colorCustomizations` の `sqlEditorTool.logicalNameForeground` などで変えられます。"
+          "default": "lineEndTag",
+          "markdownDescription": "`.sql` の論理名の見た目。色は `workbench.colorCustomizations` の `sqlEditorTool.logicalNameTagForeground`・`sqlEditorTool.logicalNameTagBackground`・`sqlEditorTool.logicalNameForeground` で変えられます。"
+        },
+        "sqlEditorTool.logicalNames.alignLineEnd": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "論理名を行の終わりに出すとき、空行で区切ったひとかたまりの行ごとに、縦に揃えます。"
         }
       }
     },

@@ -45,31 +45,32 @@ export const SQL_SELECTOR: vscode.DocumentSelector = [
 const SHOW_SETTING = "logicalNames.show";
 /** 論理名の見た目（D-42。logicalNameDecorations.ts） */
 const STYLE_SETTING = "logicalNames.style";
+/** 行の終わりに出すとき、ひとかたまりの行（空行で区切る）ごとに縦に揃えるか */
+const ALIGN_SETTING = "logicalNames.alignLineEnd";
 
 export type LogicalNameShow = "always" | "cursorLine" | "off";
-export type LogicalNameStyle =
-  | "subtle"
-  | "bracket"
-  | "tag"
-  | "lineEnd"
-  | "inlayHint";
+const STYLES = [
+  "lineEndTag",
+  "lineEnd",
+  "subtle",
+  "bracket",
+  "tag",
+  "inlayHint",
+] as const;
+export type LogicalNameStyle = (typeof STYLES)[number];
 
 export function logicalNamePrefs(): {
   show: LogicalNameShow;
   style: LogicalNameStyle;
+  align: boolean;
 } {
   const config = vscode.workspace.getConfiguration("sqlEditorTool");
   const show = config.get<string>(SHOW_SETTING, "always");
-  const style = config.get<string>(STYLE_SETTING, "subtle");
+  const style = config.get<string>(STYLE_SETTING, "lineEndTag");
   return {
     show: show === "cursorLine" || show === "off" ? show : "always",
-    style:
-      style === "bracket" ||
-      style === "tag" ||
-      style === "lineEnd" ||
-      style === "inlayHint"
-        ? style
-        : "subtle",
+    style: STYLES.find((s) => s === style) ?? "lineEndTag",
+    align: config.get<boolean>(ALIGN_SETTING, true),
   };
 }
 
@@ -182,7 +183,8 @@ export class SqlEditing implements vscode.Disposable {
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (
           event.affectsConfiguration(`sqlEditorTool.${SHOW_SETTING}`) ||
-          event.affectsConfiguration(`sqlEditorTool.${STYLE_SETTING}`)
+          event.affectsConfiguration(`sqlEditorTool.${STYLE_SETTING}`) ||
+          event.affectsConfiguration(`sqlEditorTool.${ALIGN_SETTING}`)
         ) {
           this.hintsChanged.fire();
         }
