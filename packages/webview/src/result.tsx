@@ -25,6 +25,10 @@ import { type Filters, widenedColumns } from "./widened";
 
 export type QueryState =
   | { status: "idle" }
+  /** DB に接続している（.sql の実行。接続に時間がかかっても、何も起きていないように見えないように） */
+  | { status: "connecting" }
+  /** 画面を作り直したので、前の結果が消えた */
+  | { status: "lost" }
   | { status: "running"; rowCount: number }
   | { status: "done"; rowCount: number; truncated: boolean; elapsedMs: number }
   | { status: "failed"; rowCount: number; message: string; cancelled: boolean };
@@ -97,7 +101,17 @@ export function useQueryResult() {
     [flushRows],
   );
 
-  return { query, rows, fetchedFilters, handle, queryIdRef };
+  /** 行を取る前の状況（接続中、前の結果が消えた）。行は空にする */
+  const notice = useCallback(
+    (kind: "connecting" | "lost") => {
+      rowsRef.current = [];
+      flushRows();
+      setQuery({ status: kind });
+    },
+    [flushRows],
+  );
+
+  return { query, rows, fetchedFilters, handle, notice, queryIdRef };
 }
 
 export function isQueryMessage(message: {
@@ -122,6 +136,15 @@ export function QueryStatus({
   switch (query.status) {
     case "idle":
       return null;
+    case "connecting":
+      return <span className="status">接続中…</span>;
+    case "lost":
+      return (
+        <span className="status warning">
+          前の結果は、画面を作り直したときに消えました（▶ 再実行
+          で取り直せます）
+        </span>
+      );
     case "running":
       return <span className="status">取得中… {n(query.rowCount)} 行</span>;
     case "done":

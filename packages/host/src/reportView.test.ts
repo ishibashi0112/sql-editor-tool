@@ -37,6 +37,8 @@ function setup(
     /** DB の問い合わせの代わり（なければデモ接続） */
     query?: DbSession["query"];
     describeColumns?: ReportViewDeps["describeColumns"];
+    /** 接続を開く代わり（接続に時間がかかるとき・失敗するとき） */
+    open?: (session: DbSession) => Promise<DbSession>;
   } = {},
 ) {
   const demo = new DemoSession({ dialect: "mssql", chunkDelayMs: 0 });
@@ -56,6 +58,7 @@ function setup(
     ...(options.guess ? { guessParamTypes: options.guess } : {}),
   };
   const messages: ToReport[] = [];
+  const logs: string[] = [];
   const saved: ReportConfig[] = [];
   const chooseConnection = vi.fn();
   const controller = new ReportController({
@@ -63,9 +66,11 @@ function setup(
     text: options.text ?? TEXT,
     connection:
       options.connection === undefined ? connection : options.connection,
-    openSession: async () => session,
+    openSession: () =>
+      options.open ? options.open(session) : Promise.resolve(session),
     settings: { maxRows: 100 },
     post: (message) => messages.push(message),
+    log: (message) => logs.push(message),
     copyText: async () => {},
     saveConfig: async (config) => {
       saved.push(config);
@@ -87,6 +92,8 @@ function setup(
   const lastInit = () => ofType("init").at(-1)?.view;
   return {
     controller,
+    messages,
+    logs,
     requests,
     saved,
     chooseConnection,
@@ -498,5 +505,73 @@ describe("toViewColumns", () => {
         { name: "ID", type },
       ]).map((c) => c.name),
     ).toEqual(["ID", "（列 2）", "ID (2)"]);
+  });
+});
+
+describe("実行の状況が見えること（O-18：0 件のまま何も出なかった）", () => {
+  const SQL = "SELECT * FROM [APP].[ORDERS]";
+
+  test("接続している間は「接続中」、その後に実行を始める。経過を記録する（SQL の本文は書かない）", async () => {
+    const { controller, messages, logs } = setup({ text: SQL });
+    await controller.handle({ type: "execute", mode: "all" });
+    const kinds = messages
+      .map((m) => (m.type === "queryNotice" ? `notice:${m.notice}` : m.type))
+      .filter((t) => t !== "preview" && t !== "columns" && t !== "rows");
+    expect(kinds).toEqual(["notice:connecting", "queryStarted", "queryDone"]);
+    expect(logs).toEqual([
+      "受注：実行を始めました（デモ）",
+      expect.stringMatching(/^受注：100 行（\d+\.\d 秒、上限で打ち切り）$/),
+    ]);
+    expect(logs.join("\n")).not.toContain("SELECT");
+  });
+
+  test("接続している間に中止すると、接続が済んでも実行しない", async () => {
+    let finish: (session: DbSession) => void = () => {};
+    const { controller, ofType, requests } = setup({
+      text: SQL,
+      open: (session) =>
+        new Promise((resolve) => {
+          finish = () => resolve(session);
+        }),
+    });
+    const running = controller.handle({ type: "execute", mode: "all" });
+    await controller.handle({ type: "cancel" });
+    expect(ofType("queryFailed").at(-1)).toMatchObject({
+      queryId: 0,
+      cancelled: true,
+    });
+    finish(undefined as never);
+    await running;
+    expect(ofType("queryStarted")).toHaveLength(0);
+    expect(requests).toHaveLength(0);
+  });
+
+  test("接続できなければ、理由と時間を出す", async () => {
+    const { controller, ofType, logs } = setup({
+      text: SQL,
+      open: async () => {
+        throw new Error("ログインできません");
+      },
+    });
+    await controller.handle({ type: "execute", mode: "all" });
+    expect(ofType("queryFailed").at(-1)).toMatchObject({
+      queryId: 0,
+      message: "接続できませんでした：ログインできません",
+    });
+    expect(logs[0]).toMatch(
+      /^受注：接続できませんでした：ログインできません（\d+ ms）$/,
+    );
+  });
+
+  test("画面を作り直した（もう一度 ready が来た）ら、前の結果が消えたと伝える", async () => {
+    const { controller, ofType } = setup({ text: SQL });
+    await controller.handle({ type: "ready" });
+    expect(ofType("queryNotice")).toHaveLength(0);
+    await controller.handle({ type: "execute", mode: "all" });
+    await controller.handle({ type: "ready" });
+    expect(ofType("queryNotice").at(-1)).toEqual({
+      type: "queryNotice",
+      notice: "lost",
+    });
   });
 });

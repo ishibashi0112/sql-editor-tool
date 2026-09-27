@@ -69,6 +69,7 @@ export function ReportApp({ api }: { api: ReportApi }) {
   );
   const result = useQueryResult();
   const handleQuery = result.handle;
+  const { notice } = result;
   const { queryIdRef } = result;
   const [headerMode, setHeaderMode] = useHeaderMode(api);
   const valuesRef = useRef<ReportFormValues>({});
@@ -103,13 +104,18 @@ export function ReportApp({ api }: { api: ReportApi }) {
         case "focusParam":
           focusParam(rootRef, message.name);
           return;
+        case "queryNotice":
+          notice(message.notice);
+          return;
       }
     });
     api.post({ type: "ready" });
     return unsubscribe;
-  }, [api, handleQuery, queryIdRef]);
+  }, [api, handleQuery, notice, queryIdRef]);
 
-  const running = result.query.status === "running";
+  // 接続している間も、中止はできる（接続が済んでも実行しない）
+  const running =
+    result.query.status === "running" || result.query.status === "connecting";
   const execute = useCallback(() => {
     if (!running) api.post({ type: "execute", mode: "all" });
   }, [api, running]);

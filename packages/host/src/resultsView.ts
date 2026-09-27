@@ -43,7 +43,7 @@ export type ResultsDeps = {
   /** 入力欄に最初に入れる値（前回の値） */
   savedValues(source: string): ReportFormValues | undefined;
   saveValues(source: string, values: ReportFormValues): void;
-  /** 入力欄の設定を .sql の先頭のコメントに書く。書いた後、拡張が update で新しい設定を渡す */
+  /** 入力欄の設定を VS Code の中に覚える（D-44）。覚えた後、拡張が update で新しい設定を渡す */
   saveConfig(source: string, config: ReportConfig): Promise<void>;
   /** エディタで、その文を選んで見せる */
   reveal(source: string, statement: RunStatement): void;
@@ -58,6 +58,8 @@ export type ResultsDeps = {
   focus(): void;
   /** 今の時刻（相対の日付の既定値。テストで差し替える） */
   now?(): Date;
+  /** 実行の経過を記録する（SQL の本文・入力した値・パスワードは渡さない） */
+  log?(message: string): void;
 };
 
 type Tab = {
@@ -148,15 +150,36 @@ export class ResultsController {
         return;
       case "tab": {
         const tab = this.tabs.find((t) => t.info.id === message.tabId);
-        if (!tab) return;
-        await tab.controller.handle(message.message);
-        if (message.message.type === "ready" && tab.pending) {
-          tab.pending = false;
-          // その間に実行し直して、タブを閉じていたら実行しない
-          if (!this.tabs.includes(tab)) return;
-          // 値がそろっていなければ、入力欄にカーソルを置いてもらう
-          const missing = await tab.controller.executeIfReady();
-          if (missing !== null) this.deps.focus();
+        if (!tab) {
+          this.deps.log?.(
+            `閉じたタブ（${message.tabId}）からのメッセージ（${message.message.type}）は使いません`,
+          );
+          return;
+        }
+        try {
+          await tab.controller.handle(message.message);
+          if (message.message.type === "ready" && tab.pending) {
+            tab.pending = false;
+            // その間に実行し直して、タブを閉じていたら実行しない
+            if (!this.tabs.includes(tab)) return;
+            // 値がそろっていなければ、入力欄にカーソルを置いてもらう
+            const missing = await tab.controller.executeIfReady();
+            if (missing !== null) this.deps.focus();
+          }
+        } catch (error) {
+          // 思わぬ例外でも、何も起きないように見えないよう、タブにエラーとして出す
+          const text = error instanceof Error ? error.message : String(error);
+          this.deps.log?.(`${tab.info.detail}：思わぬエラー：${text}`);
+          this.deps.post({
+            type: "tab",
+            tabId: tab.info.id,
+            message: {
+              type: "queryFailed",
+              queryId: 0,
+              message: `思わぬエラーで止まりました：${text}`,
+              cancelled: false,
+            },
+          });
         }
         return;
       }
@@ -202,7 +225,11 @@ export class ResultsController {
           }
         : {}),
       ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.log ? { log: deps.log } : {}),
     });
+    deps.log?.(
+      `${info.detail}：実行します（${request.connection?.name ?? "接続が決まっていません"}）`,
+    );
     return { info, source, statement, controller, pending: true };
   }
 

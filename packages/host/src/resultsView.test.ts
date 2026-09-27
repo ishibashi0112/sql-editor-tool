@@ -199,3 +199,25 @@ describe("ResultsController", () => {
     expect(list[0]?.label).toBe("1.sql");
   });
 });
+
+describe("思わぬ例外（O-18）", () => {
+  test("タブの処理で例外が起きても、黙って止まらずタブにエラーとして出す", async () => {
+    const { controller, tabMessages, ready, focus } = setup();
+    focus.mockImplementation(() => {
+      throw new Error("パネルを開けません");
+    });
+    // 必須の入力欄が空なので、パネルにフォーカスを移そうとして例外になる
+    controller.run(
+      request("file:///受注.sql", [
+        statement("SELECT * FROM ORDERS WHERE CUST_CD = :得意先"),
+      ]),
+    );
+    await ready("tab1");
+    expect(tabMessages("tab1").at(-1)).toEqual({
+      type: "queryFailed",
+      queryId: 0,
+      message: "思わぬエラーで止まりました：パネルを開けません",
+      cancelled: false,
+    });
+  });
+});

@@ -57,6 +57,11 @@ export class ResultsPanel
     ),
   });
   private readonly disposables: vscode.Disposable[] = [];
+  /** 実行の経過（「出力」の SQL Editor Tool）。SQL の本文・入力した値・パスワードは書かない */
+  private readonly output = vscode.window.createOutputChannel(
+    "SQL Editor Tool",
+    { log: true },
+  );
   private saveValuesTimer: ReturnType<typeof setTimeout> | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -93,6 +98,7 @@ export class ResultsPanel
         });
       },
       focus: () => this.view?.show(false),
+      log: (message) => this.output.info(message),
     });
 
     this.disposables.push(
@@ -160,6 +166,9 @@ export class ResultsPanel
     );
     view.onDidDispose(() => {
       if (this.view === view) this.view = undefined;
+      this.output.info(
+        "結果のパネルの画面が閉じられました（前の結果は消えます）",
+      );
     });
   }
 
@@ -167,6 +176,7 @@ export class ResultsPanel
     clearTimeout(this.saveValuesTimer);
     clearTimeout(this.flashTimer);
     this.controller.dispose();
+    this.output.dispose();
     for (const d of [...this.viewDisposables, ...this.disposables]) d.dispose();
   }
 

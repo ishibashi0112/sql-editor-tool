@@ -57,6 +57,11 @@ export type ToReport =
   | { type: "columns"; queryId: number; columns: ViewColumn[] }
   /** 入力欄にカーソルを置く（値がなくて実行できなかったとき） */
   | { type: "focusParam"; name: string }
+  /**
+   * 実行の状況のうち、行を取る前のもの。connecting：DB に接続している（接続に時間がかかっても、何も起きていないように見えないように）。
+   * lost：画面を作り直したので、前の結果（行とエラー）が消えた
+   */
+  | { type: "queryNotice"; notice: "connecting" | "lost" }
   | QueryMessage;
 
 export type FromReport =

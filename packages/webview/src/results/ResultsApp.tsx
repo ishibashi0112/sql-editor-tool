@@ -35,13 +35,17 @@ export function ResultsApp({ api }: { api: ResultsApi }) {
           if (!ids.has(id)) apis.current.delete(id);
         }
       } else if (message.type === "tab") {
-        const { type } = message.message;
+        const inner = message.message;
+        const { type } = inner;
         if (
           type === "queryStarted" ||
           type === "queryDone" ||
-          type === "queryFailed"
+          type === "queryFailed" ||
+          type === "queryNotice"
         ) {
-          const on = type === "queryStarted";
+          const on =
+            type === "queryStarted" ||
+            (type === "queryNotice" && inner.notice === "connecting");
           setRunning((current) => {
             if (current.has(message.tabId) === on) return current;
             const next = new Set(current);
