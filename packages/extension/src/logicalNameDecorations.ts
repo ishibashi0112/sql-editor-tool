@@ -2,7 +2,7 @@
 // エディタの装飾（decoration）で名前の後ろに出す。見た目は設定 sqlEditorTool.logicalNames.style で選ぶ。
 // 色は拡張の色（package.json の colors）にしてあり、テーマや workbench.colorCustomizations で変えられる
 
-import { shortLogicalName } from "@sql-editor-tool/core";
+import { displayWidth, shortLogicalName } from "@sql-editor-tool/core";
 import type { SqlSymbol } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import {
@@ -323,26 +323,4 @@ function lineEndOptions(
     }
   }
   return slots;
-}
-
-/** 画面の上の幅（桁）。全角の文字は 2 桁、タブは次のタブの位置まで */
-function displayWidth(text: string, tabSize: number): number {
-  let width = 0;
-  for (const c of text) {
-    if (c === "\t") {
-      width += tabSize - (width % tabSize);
-      continue;
-    }
-    const code = c.codePointAt(0) ?? 0;
-    const wide =
-      (code >= 0x1100 && code <= 0x115f) ||
-      (code >= 0x2e80 && code <= 0xa4cf) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe30 && code <= 0xfe4f) ||
-      (code >= 0xff00 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6);
-    width += wide ? 2 : 1;
-  }
-  return width;
 }

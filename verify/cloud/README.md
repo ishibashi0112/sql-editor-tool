@@ -16,12 +16,14 @@ cd verify/cloud/pw && npm install                                        # Playw
 node connect.mjs                                                         # 接続「検証DB」を追加する（最初に 1 回）
 node run-sql.mjs                                                         # .sql の実行を確かめる
 node diff-camera.mjs                                                     # 差分カメラを通しで確かめる
+node generate-sql.mjs                                                    # SQL の生成（テーブルの右クリック → SELECT → 実行）を確かめる
 ```
 
 - 初回の `start.sh` は、code-server を入れるので 2〜3 分かかります（`install-code-server.sh`）。2 回目からはすぐです。
 - 環境が止まって起き直したとき（dockerd と code-server が止まります）は、`start.sh` をもう一度実行すれば戻ります。何度実行してもかまいません。
 - 拡張を直したら、vsix を作り直して `start.sh <vsix>` を実行します（code-server を止めて入れ直し、起こし直します）。開いているブラウザは読み込み直してください。
 - スクリーンショットやコピーした中身は、作業フォルダの `shots/` に出ます。
+- 架空の表は、DB「検証」がないときに `mssql/setup.sql` で作ります。主キーが 2 列の表 `ORDER_LINES`（SQL の生成の確認用）は 0.13.0 のときに足したので、それより前に作った DB にはありません（`mssql/setup.sql` の `ORDER_LINES` の部分を `USE 検証;` の後に流すか、コンテナ `mssql` を消して `start.sh` で作り直します）。
 
 ## 作業フォルダ
 

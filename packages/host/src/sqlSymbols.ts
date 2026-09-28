@@ -9,6 +9,7 @@ import {
   type LogicalName,
   type NameReference,
   type SqlOutline,
+  sqlComments,
   sqlOutline,
   type TableReference,
 } from "@sql-editor-tool/core";
@@ -64,6 +65,34 @@ export async function resolveSymbols(
     if (symbol) symbols.push(symbol);
   }
   return symbols;
+}
+
+/**
+ * 同じ行の、名前より後ろのコメントに論理名を書いてある名前を除く。A5:SQL Mk-2 や「SQL を生成」（D-49）で作った
+ * `ORDER_NO  -- 受注番号` のような行で、行の終わりの論理名の札（D-42）が同じことを二重に出さないように
+ */
+export function withoutCommentedNames(
+  dialect: DialectName,
+  text: string,
+  symbols: readonly SqlSymbol[],
+): SqlSymbol[] {
+  if (!text.includes("--") && !text.includes("/*")) return [...symbols];
+  const comments = sqlComments(getDialect(dialect), text);
+  return symbols.filter((symbol) => {
+    const logicalName =
+      symbol.kind === "table"
+        ? symbol.object.logicalName
+        : symbol.column.logicalName;
+    if (!logicalName) return true;
+    const newline = text.indexOf("\n", symbol.end);
+    const lineEnd = newline < 0 ? text.length : newline;
+    return !comments.some(
+      (c) =>
+        c.start >= symbol.end &&
+        c.start < lineEnd &&
+        text.slice(c.start, c.end).includes(logicalName),
+    );
+  });
 }
 
 /** offset の位置の名前（ホバー用） */

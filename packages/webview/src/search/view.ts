@@ -92,6 +92,15 @@ export function mountSearchView(root: HTMLElement, api: SearchApi): void {
       results.append(groupHeader(connection, total));
       for (const hit of hits) {
         const row = resultRow(hit);
+        // 右クリックのメニュー（「SQL を生成…」、D-49）に渡すもの。VS Code の既定の項目（切り取りなど）は出さない
+        row.dataset.vscodeContext = JSON.stringify({
+          webviewSection: "object",
+          connectionId: connection.id,
+          schema: hit.object.schema,
+          name: hit.object.name,
+          logicalName: hit.object.logicalName,
+          preventDefaultContextMenuItems: true,
+        });
         const item: Item = {
           connectionId: connection.id,
           object: hit.object,

@@ -66,6 +66,12 @@ if [ -n "$VSIX" ]; then
   if [ -f "$WORK/cs.pid" ]; then kill "$(cat "$WORK/cs.pid")" 2>/dev/null || true; sleep 2; fi
   # 前の版は消してから入れる（古い版が残ると、どちらが動くか分からない）
   rm -rf "$WORK"/csext/ishibashi0112.sql-editor-tool-*
+  # 同じ版を入れ直すと「VS Code を再起動してから」と断られるので、拡張の一覧（extensions.json）からも消す
+  if [ -f "$WORK/csext/extensions.json" ]; then
+    node -e 'const fs = require("fs"); const f = process.argv[1];
+      fs.writeFileSync(f, JSON.stringify(JSON.parse(fs.readFileSync(f, "utf8")).filter((e) => e.identifier.id !== "ishibashi0112.sql-editor-tool")));' \
+      "$WORK/csext/extensions.json"
+  fi
   node "$CS" --user-data-dir "$WORK/csud" --extensions-dir "$WORK/csext" --install-extension "$VSIX" --force
 fi
 if ! running; then

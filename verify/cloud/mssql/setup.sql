@@ -31,3 +31,13 @@ INSERT INTO dbo.CUSTOMERS VALUES (N'C00001', N'山田商店', N'東京都'), (N'
 INSERT INTO dbo.ORDERS VALUES (N'D001', N'20260901', 5, N'C00001'), (N'D002', N'20260902', 7, N'C00002'), (N'D003', N'20260915', 12, N'C00001'), (N'D004', N'20260820', 3, N'C00002');
 INSERT INTO dbo.WORK_LOG VALUES (N'20260901', N'D001', N'登録'), (N'20260902', N'D002', N'登録');
 GO
+-- 主キーが 2 列の表（SQL の生成（D-49）の確認用）
+CREATE TABLE dbo.ORDER_LINES (ORDER_NO nvarchar(10) NOT NULL, LINE_NO int NOT NULL, ITEM_CD nvarchar(8), QTY int, SHIP_YMD nvarchar(8), CONSTRAINT PK_ORDER_LINES PRIMARY KEY (ORDER_NO, LINE_NO));
+EXEC sp_addextendedproperty N'MS_Description', N'受注行', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES';
+EXEC sp_addextendedproperty N'MS_Description', N'受注番号', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES', N'COLUMN', N'ORDER_NO';
+EXEC sp_addextendedproperty N'MS_Description', N'行番号', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES', N'COLUMN', N'LINE_NO';
+EXEC sp_addextendedproperty N'MS_Description', N'品目コード', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES', N'COLUMN', N'ITEM_CD';
+EXEC sp_addextendedproperty N'MS_Description', N'数量', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES', N'COLUMN', N'QTY';
+EXEC sp_addextendedproperty N'MS_Description', N'出荷予定日', N'SCHEMA', N'dbo', N'TABLE', N'ORDER_LINES', N'COLUMN', N'SHIP_YMD';
+INSERT INTO dbo.ORDER_LINES VALUES (N'D001', 1, N'A100', 2, N'20260905'), (N'D001', 2, N'B200', 3, N'20260905'), (N'D002', 1, N'A100', 7, N'20260910');
+GO

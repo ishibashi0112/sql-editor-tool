@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -122,6 +122,16 @@
         "category": "SQL Editor Tool"
       },
       {
+        "command": "sqlEditorTool.generateSql",
+        "title": "SQL を生成…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere",
+        "title": "テーブルから SQL を生成（カーソルの位置に入れる）…",
+        "category": "SQL Editor Tool"
+      },
+      {
         "command": "sqlEditorTool.chooseSqlConnection",
         "title": "SQL の補完に使う接続を選ぶ",
         "category": "SQL Editor Tool",
@@ -173,12 +183,23 @@
       ],
       "view/item/context": [
         {
+          "command": "sqlEditorTool.generateSql",
+          "when": "view == sqlEditorTool.connections && (viewItem == table || viewItem == view)",
+          "group": "navigation@1"
+        },
+        {
           "command": "sqlEditorTool.disconnect",
           "when": "view == sqlEditorTool.connections && viewItem == connection"
         },
         {
           "command": "sqlEditorTool.removeConnection",
           "when": "view == sqlEditorTool.connections && viewItem == connection"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "sqlEditorTool.generateSql",
+          "when": "webviewId == 'sqlEditorTool.search' && webviewSection == 'object'"
         }
       ],
       "commandPalette": [
@@ -205,6 +226,10 @@
         {
           "command": "sqlEditorTool.runStatementAt",
           "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i"
         }
       ],
       "editor/title": [
@@ -224,6 +249,11 @@
           "command": "sqlEditorTool.formatSql",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
           "group": "1_modification@9"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "1_modification@10"
         }
       ]
     },

@@ -6,6 +6,7 @@ import {
   resolveSymbols,
   type SqlSymbol,
   symbolAt,
+  withoutCommentedNames,
 } from "./sqlSymbols";
 
 // デモ接続の架空のテーブル（APP.ORDERS＝受注明細、CUSTOMERS＝得意先、ITEMS＝品目、V_OPEN_ORDERS）
@@ -142,6 +143,39 @@ WHERE EXISTS (SELECT 1 FROM ITEMS i WHERE i.ITEM_CD = o.ITEM_CD)`;
       // 副問い合わせのテーブルの列も探す
       { logicalName: "品目名" },
       {},
+    ]);
+  });
+});
+
+describe("withoutCommentedNames", () => {
+  test("同じ行の後ろのコメントに論理名がある名前は、札を出さない", async () => {
+    const text = `SELECT
+    ORDER_NO      -- 受注番号
+  , QTY
+  , ITEM_CD       -- 品目コード（8 桁）
+  , CUST_CD       /* 得意先 */
+  , /* 数量 */ LINE_NO
+FROM
+    APP.ORDERS    -- 受注明細
+WHERE
+    ORDER_NO = :ORDER_NO
+    AND NOTE = '-- 備考'`;
+    const symbols = await resolveSymbols({
+      dialect: "mssql",
+      text,
+      cache: cache(),
+    });
+    expect(
+      withoutCommentedNames("mssql", text, symbols).map(describeSymbol(text)),
+    ).toEqual([
+      "QTY=数量",
+      // コメントが論理名（得意先コード）を含まない
+      "CUST_CD=得意先コード",
+      // コメントが名前より前
+      "LINE_NO🔑=行番号",
+      "ORDER_NO🔑=受注番号",
+      // 文字列の中の -- はコメントではない
+      "NOTE=備考",
     ]);
   });
 });

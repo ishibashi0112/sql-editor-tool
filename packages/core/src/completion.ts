@@ -780,6 +780,16 @@ export function isInsideLiteral(
   );
 }
 
+/** コメント（-- で始まる行のコメントと、ブロックのコメント）の範囲。文字列は含まない。閉じていないコメントは文末まで */
+export function sqlComments(
+  dialect: Dialect,
+  text: string,
+): { start: number; end: number }[] {
+  return scan(dialect, text)
+    .opaque.filter((o) => o.line || text.startsWith("/*", o.start))
+    .map(({ start, end }) => ({ start, end }));
+}
+
 /** 補完で入れる名前。予約語や記号を含む名前、Oracle の小文字を含む名前は引用符で囲む */
 export function completionIdentifier(dialect: Dialect, name: string): string {
   const plain =

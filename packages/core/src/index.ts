@@ -9,6 +9,7 @@ export {
   type SqlOutline,
   type SqlStatementRange,
   splitStatements,
+  sqlComments,
   sqlKeywords,
   sqlOutline,
   statementAt,
@@ -59,6 +60,16 @@ export {
   type SqlFormatOptions,
   type SqlFormatResult,
 } from "./format";
+export {
+  DEFAULT_GENERATE_OPTIONS,
+  type GeneratedParam,
+  type GeneratedSelect,
+  type GenerateSelectInput,
+  type GenerateSelectOptions,
+  generatedTitle,
+  generateSelect,
+  paramTypeForColumn,
+} from "./generateSql";
 export {
   type LogicalName,
   shortLogicalName,
@@ -117,4 +128,5 @@ export {
   type TableSettings,
   ymdCandidates,
 } from "./tableSettings";
+export { displayWidth } from "./textWidth";
 export type { ConditionOptions, ResolveDatePreset } from "./where";
