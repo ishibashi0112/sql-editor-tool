@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { namedParams } from "./baseSql";
 import { mssql, oracle } from "./dialect";
+import { formatSql } from "./format";
 import {
   DEFAULT_GENERATE_OPTIONS,
+  type GenerateSelectLayout,
   generateSelect,
   paramTypeForColumn,
 } from "./generateSql";
@@ -44,18 +46,18 @@ describe("generateSelect", () => {
       [
         "-- SALES.ORDER_LINES（受注明細）",
         "SELECT",
-        "    ORDER_NO             -- 受注番号",
-        "  , LINE_NO              -- 行番号",
-        "  , ITEM_CD              -- 品目コード",
-        "  , QTY                  -- 数量",
+        "    ORDER_NO,            -- 受注番号",
+        "    LINE_NO,             -- 行番号",
+        "    ITEM_CD,             -- 品目コード",
+        "    QTY                  -- 数量",
         "FROM",
         "    SALES.ORDER_LINES    -- 受注明細",
         "WHERE",
         "    ORDER_NO = :ORDER_NO",
         "    AND LINE_NO = :LINE_NO",
         "ORDER BY",
-        "    ORDER_NO",
-        "  , LINE_NO",
+        "    ORDER_NO,",
+        "    LINE_NO",
         "",
       ].join("\n"),
     );
@@ -88,9 +90,9 @@ describe("generateSelect", () => {
       [
         "-- SALES.ORDER_LINES",
         "SELECT",
-        "    ORDER_NO",
-        "  , ITEM_CD    -- 品目コード",
-        "  , QTY",
+        "    ORDER_NO,",
+        "    ITEM_CD,    -- 品目コード",
+        "    QTY",
         "FROM",
         "    SALES.ORDER_LINES",
         "",
@@ -144,10 +146,10 @@ describe("generateSelect", () => {
     expect(sql).toBe(
       [
         "SELECT",
-        "    ORDER_NO",
-        "  , LINE_NO",
-        "  , ITEM_CD",
-        "  , QTY",
+        "    ORDER_NO,",
+        "    LINE_NO,",
+        "    ITEM_CD,",
+        "    QTY",
         "FROM",
         "    ORDER_LINES",
         "",
@@ -176,7 +178,7 @@ describe("generateSelect", () => {
       },
       DEFAULT_GENERATE_OPTIONS,
     );
-    expect(ora.sql).toContain('    "DATE"\n  , "item cd"\n  , "Memo"\n');
+    expect(ora.sql).toContain('    "DATE",\n    "item cd",\n    "Memo"\n');
     expect(ora.sql).toContain('    SALES."Order"\n');
     expect(ora.sql).toContain('    "DATE" = :DATE\n');
     const ms = generateSelect(
@@ -189,7 +191,7 @@ describe("generateSelect", () => {
       DEFAULT_GENERATE_OPTIONS,
     );
     // SQL Server は大文字小文字を区別しないので、小文字だけでは囲まない
-    expect(ms.sql).toContain("    [DATE]\n  , [item cd]\n  , Memo\n");
+    expect(ms.sql).toContain("    [DATE],\n    [item cd],\n    Memo\n");
     expect(ms.sql).toContain("    dbo.[Order]\n");
   });
 
@@ -224,8 +226,8 @@ describe("generateSelect", () => {
       [
         "-- dbo.受注",
         "SELECT",
-        "    受注番号    -- 番号",
-        "  , QTY         -- 数量",
+        "    受注番号,    -- 番号",
+        "    QTY          -- 数量",
         "FROM",
         "    受注",
         "WHERE",
@@ -235,6 +237,78 @@ describe("generateSelect", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  test("インデントの幅・タブと AND の位置は、整形の設定に合わせる", () => {
+    const input = { table, columns: lines, keys: ["ORDER_NO", "LINE_NO"] };
+    const options = {
+      ...DEFAULT_GENERATE_OPTIONS,
+      title: false,
+      comments: false,
+    };
+    expect(
+      generateSelect(mssql, input, options, {
+        tabWidth: 2,
+        useTabs: false,
+        logicalOperatorNewline: "after",
+      }).sql,
+    ).toBe(
+      [
+        "SELECT",
+        "  ORDER_NO,",
+        "  LINE_NO,",
+        "  ITEM_CD,",
+        "  QTY",
+        "FROM",
+        "  SALES.ORDER_LINES",
+        "WHERE",
+        "  ORDER_NO = :ORDER_NO AND",
+        "  LINE_NO = :LINE_NO",
+        "ORDER BY",
+        "  ORDER_NO,",
+        "  LINE_NO",
+        "",
+      ].join("\n"),
+    );
+    const tabs = generateSelect(
+      mssql,
+      { ...input, logicalName: "受注明細" },
+      { ...options, comments: true },
+      { tabWidth: 4, useTabs: true, logicalOperatorNewline: "before" },
+    ).sql;
+    // タブはタブの位置まで数えて揃える
+    expect(tabs).toContain("\tORDER_NO,            -- 受注番号\n");
+    expect(tabs).toContain("\tSALES.ORDER_LINES    -- 受注明細\n");
+    expect(tabs).toContain("\tAND LINE_NO = :LINE_NO\n");
+  });
+
+  test("整形（D-45）しても、コメントの前の空白が 1 つに詰まるほかは変わらない", () => {
+    const layouts: GenerateSelectLayout[] = [
+      { tabWidth: 4, useTabs: false, logicalOperatorNewline: "before" },
+      { tabWidth: 2, useTabs: false, logicalOperatorNewline: "after" },
+      { tabWidth: 4, useTabs: true, logicalOperatorNewline: "before" },
+    ];
+    for (const dialect of [mssql, oracle]) {
+      for (const layout of layouts) {
+        const { sql } = generateSelect(
+          dialect,
+          {
+            table,
+            logicalName: "受注明細",
+            columns: lines,
+            keys: ["ORDER_NO", "LINE_NO"],
+          },
+          DEFAULT_GENERATE_OPTIONS,
+          layout,
+        );
+        const formatted = formatSql(dialect, sql, layout);
+        expect(formatted).toEqual({
+          ok: true,
+          text: sql.replace(/ +-- /g, " -- "),
+          rejoined: 0,
+        });
+      }
+    }
   });
 
   test("列が取れなかったときは *", () => {

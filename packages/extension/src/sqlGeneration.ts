@@ -5,8 +5,10 @@
 
 import {
   applyTableSettings,
+  DEFAULT_GENERATE_LAYOUT,
   DEFAULT_GENERATE_OPTIONS,
   type GeneratedParam,
+  type GenerateSelectLayout,
   type GenerateSelectOptions,
   generatedTitle,
   generateSelect,
@@ -22,6 +24,7 @@ import type { ConnectionProfile, ConnectionStore } from "./connections";
 import { tableSettingsKey } from "./dataViewPanel";
 import { addParamSettings, forgetFileState, STATE_KEYS } from "./fileSettings";
 import { dialectOf, isSqlDocument, type SqlEditing } from "./sqlEditing";
+import { formatSettings } from "./sqlFormatting";
 import { describe, type TreeNode } from "./tree";
 
 /** 生成する表 */
@@ -205,6 +208,7 @@ export class SqlGeneration implements vscode.Disposable {
         keys,
       },
       options,
+      layoutFor(output === "cursor" ? editor : undefined),
     );
     const presets = paramPresets(params);
     const run = process.platform === "darwin" ? "Cmd+Enter" : "Ctrl+Enter";
@@ -385,6 +389,35 @@ export class SqlGeneration implements vscode.Disposable {
       this.settingsOf(profile, table),
     );
   }
+}
+
+/**
+ * 生成する SQL の形。.sql の整形（D-45）と同じく、インデントはエディタの設定（入れる先のエディタ。新しいエディタなら
+ * SQL の言語の設定）、AND の位置は整形の設定に合わせる（生成した SQL を整形しても形が変わらないように）
+ */
+function layoutFor(
+  editor: vscode.TextEditor | undefined,
+): GenerateSelectLayout {
+  const { logicalOperatorNewline } = formatSettings();
+  if (editor) {
+    const { tabSize, insertSpaces } = editor.options;
+    return {
+      tabWidth:
+        typeof tabSize === "number"
+          ? tabSize
+          : DEFAULT_GENERATE_LAYOUT.tabWidth,
+      useTabs: insertSpaces === false,
+      logicalOperatorNewline,
+    };
+  }
+  const config = vscode.workspace.getConfiguration("editor", {
+    languageId: "sql",
+  });
+  return {
+    tabWidth: config.get<number>("tabSize", DEFAULT_GENERATE_LAYOUT.tabWidth),
+    useTabs: config.get<boolean>("insertSpaces", true) === false,
+    logicalOperatorNewline,
+  };
 }
 
 /** 主キーの入力欄の表示名（論理名）と種類（列の型から） */

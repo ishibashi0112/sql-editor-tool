@@ -1,5 +1,6 @@
 // SQL の生成（D-49）を通しで確かめる：テーブル検索の右クリック「SQL を生成…」→ 付けるものを選ぶ（前の選び方のまま Enter）→
-// 新しいエディタに SELECT（論理名のコメント、主キーの :名前、主キーの順）→ Ctrl+Enter → 主キーの入力欄（論理名）に値 → 1 行。
+// 新しいエディタに SELECT（論理名のコメント、主キーの :名前、主キーの順）→ 整形しても形が変わらない →
+// Ctrl+Enter → 主キーの入力欄（論理名）に値 → 1 行。
 // 続けて、.sql の右クリック「テーブルから SQL を生成（カーソルの位置に入れる）」で別の表を入れ、
 // 名前を付けて保存しても接続が引き継がれることと、接続のツリーの表の右クリックにもあることを確かめる。
 // 表は架空の DB「検証」の ORDER_LINES（主キー 2 列）と CUSTOMERS
@@ -41,6 +42,15 @@ console.log("生成した SQL：\n" + (await editorLines.innerText()).replace(/�
 console.log("タブ：", await text(page.locator(".tabs-container")));
 console.log("ステータスバー：", await text(page.locator(".statusbar")));
 await shot(page, "generate-sql-3-editor");
+
+// 整形（D-45）しても、コメントの前の空白が詰まるほかは変わらない（, は行の終わり）
+const before = (await editorLines.innerText()).replace(/\u00a0/g, " ");
+await command(page, "SQL Editor Tool: SQL を整形");
+await page.waitForTimeout(1500);
+const after = (await editorLines.innerText()).replace(/\u00a0/g, " ");
+console.log("整形した後：\n" + after);
+console.log("整形で変わったのはコメントの前の空白だけ：", after === before.replace(/ +-- /g, " -- "));
+await shot(page, "generate-sql-3b-formatted");
 
 // Ctrl+Enter → 主キーの入力欄（表示名は論理名）
 await editorLines.click({ position: { x: 300, y: 5 } });
