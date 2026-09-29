@@ -2,7 +2,7 @@
   "name": "sql-editor-tool",
   "displayName": "SQL Editor Tool（仮称）",
   "description": "社内 DB（SQL Server / Oracle）を、.sql の実行と列見出しのフィルタで見る読み取り専用のツール",
-  "version": "0.12.1",
+  "version": "0.14.0",
   "private": true,
   "publisher": "ishibashi0112",
   "repository": {
@@ -122,6 +122,56 @@
         "category": "SQL Editor Tool"
       },
       {
+        "command": "sqlEditorTool.generateSql",
+        "title": "SQL を生成（SELECT・INSERT・UPDATE・DELETE）…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere",
+        "title": "テーブルから SQL を生成（カーソルの位置に入れる）…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSql.select",
+        "title": "SELECT…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSql.insert",
+        "title": "INSERT…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSql.update",
+        "title": "UPDATE…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSql.delete",
+        "title": "DELETE…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere.select",
+        "title": "SELECT…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere.insert",
+        "title": "INSERT…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere.update",
+        "title": "UPDATE…",
+        "category": "SQL Editor Tool"
+      },
+      {
+        "command": "sqlEditorTool.generateSqlHere.delete",
+        "title": "DELETE…",
+        "category": "SQL Editor Tool"
+      },
+      {
         "command": "sqlEditorTool.chooseSqlConnection",
         "title": "SQL の補完に使う接続を選ぶ",
         "category": "SQL Editor Tool",
@@ -141,6 +191,16 @@
         "command": "sqlEditorTool.importSettings",
         "title": "設定を読み込む（別の PC で書き出したもの）",
         "category": "SQL Editor Tool"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "sqlEditorTool.generateSqlMenu",
+        "label": "SQL を生成"
+      },
+      {
+        "id": "sqlEditorTool.generateSqlHereMenu",
+        "label": "テーブルから SQL を生成（カーソルの位置に入れる）"
       }
     ],
     "menus": {
@@ -173,12 +233,23 @@
       ],
       "view/item/context": [
         {
+          "when": "view == sqlEditorTool.connections && (viewItem == table || viewItem == view)",
+          "group": "navigation@1",
+          "submenu": "sqlEditorTool.generateSqlMenu"
+        },
+        {
           "command": "sqlEditorTool.disconnect",
           "when": "view == sqlEditorTool.connections && viewItem == connection"
         },
         {
           "command": "sqlEditorTool.removeConnection",
           "when": "view == sqlEditorTool.connections && viewItem == connection"
+        }
+      ],
+      "webview/context": [
+        {
+          "submenu": "sqlEditorTool.generateSqlMenu",
+          "when": "webviewId == 'sqlEditorTool.search' && webviewSection == 'object'"
         }
       ],
       "commandPalette": [
@@ -205,6 +276,42 @@
         {
           "command": "sqlEditorTool.runStatementAt",
           "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere",
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.select",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.select",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.insert",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.insert",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.update",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.update",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.delete",
+          "when": "false"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.delete",
+          "when": "false"
         }
       ],
       "editor/title": [
@@ -224,6 +331,47 @@
           "command": "sqlEditorTool.formatSql",
           "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
           "group": "1_modification@9"
+        },
+        {
+          "when": "editorLangId == sql || resourceExtname =~ /^\\.sql$/i",
+          "group": "1_modification@10",
+          "submenu": "sqlEditorTool.generateSqlHereMenu"
+        }
+      ],
+      "sqlEditorTool.generateSqlMenu": [
+        {
+          "command": "sqlEditorTool.generateSql.select",
+          "group": "1_kind@1"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.insert",
+          "group": "1_kind@2"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.update",
+          "group": "1_kind@3"
+        },
+        {
+          "command": "sqlEditorTool.generateSql.delete",
+          "group": "1_kind@4"
+        }
+      ],
+      "sqlEditorTool.generateSqlHereMenu": [
+        {
+          "command": "sqlEditorTool.generateSqlHere.select",
+          "group": "1_kind@1"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.insert",
+          "group": "1_kind@2"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.update",
+          "group": "1_kind@3"
+        },
+        {
+          "command": "sqlEditorTool.generateSqlHere.delete",
+          "group": "1_kind@4"
         }
       ]
     },

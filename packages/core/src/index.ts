@@ -9,6 +9,7 @@ export {
   type SqlOutline,
   type SqlStatementRange,
   splitStatements,
+  sqlComments,
   sqlKeywords,
   sqlOutline,
   statementAt,
@@ -60,11 +61,25 @@ export {
   type SqlFormatResult,
 } from "./format";
 export {
+  DEFAULT_GENERATE_LAYOUT,
+  DEFAULT_GENERATE_OPTIONS,
+  GENERATE_OPTION_KEYS,
+  type GeneratedParam,
+  type GeneratedSql,
+  type GenerateInput,
+  type GenerateKind,
+  type GenerateLayout,
+  type GenerateOptions,
+  generatedTitle,
+  generateSql,
+  paramTypeForColumn,
+} from "./generateSql";
+export {
   type LogicalName,
   shortLogicalName,
   splitDbComment,
 } from "./logicalName";
-export { assertReadOnlyQuery } from "./readOnly";
+export { assertReadOnlyQuery, writeStatementKeyword } from "./readOnly";
 export {
   isRelativeDate,
   resolveDateValue,
@@ -117,4 +132,5 @@ export {
   type TableSettings,
   ymdCandidates,
 } from "./tableSettings";
+export { displayWidth } from "./textWidth";
 export type { ConditionOptions, ResolveDatePreset } from "./where";

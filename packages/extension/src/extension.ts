@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { ConnectionStore, promptConnection } from "./connections";
 import { openDataView } from "./dataViewPanel";
 import { DIFF_CAMERA_VIEW_ID, DiffCameraPanel } from "./diffCameraPanel";
+import { carryOverUntitled } from "./fileSettings";
 import { LogicalNameDecorations } from "./logicalNameDecorations";
 import { RESULTS_VIEW_ID, ResultsPanel } from "./resultsPanel";
 import { TableSearchView } from "./searchView";
@@ -11,6 +12,7 @@ import { SessionManager } from "./sessions";
 import { exportSettings, importSettings } from "./settingsTransfer";
 import { SqlEditing } from "./sqlEditing";
 import { SqlFormatting } from "./sqlFormatting";
+import { SqlGeneration } from "./sqlGeneration";
 import { ConnectionTree, type TreeNode } from "./tree";
 
 let sessions: SessionManager | undefined;
@@ -52,6 +54,10 @@ export function activate(context: vscode.ExtensionContext): void {
     new LogicalNameDecorations(editing),
     // .sql の整形（D-45）
     new SqlFormatting(editing, context),
+    // テーブルから SQL を生成（D-49）
+    new SqlGeneration({ store, editing, state: context.globalState }),
+    // 名前のないファイルに覚えた接続などを、保存したファイルに引き継ぐ
+    carryOverUntitled(context.globalState, () => editing.refresh()),
     vscode.window.createTreeView("sqlEditorTool.connections", {
       treeDataProvider: tree,
       showCollapseAll: true,

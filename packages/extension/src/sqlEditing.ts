@@ -21,6 +21,7 @@ import {
   SchemaCache,
   type SqlSymbol,
   symbolAt,
+  withoutCommentedNames,
 } from "@sql-editor-tool/host";
 import * as vscode from "vscode";
 import type { ConnectionProfile, ConnectionStore } from "./connections";
@@ -237,6 +238,12 @@ export class SqlEditing implements vscode.Disposable {
     for (const d of this.disposables.splice(0)) d.dispose();
   }
 
+  /** ステータスバーの接続と論理名を出し直す（覚えた接続がほかで変わったとき） */
+  refresh(): void {
+    this.updateStatus();
+    this.hintsChanged.fire();
+  }
+
   /**
    * この .sql の補完・実行に使う接続。選んだもの（VS Code の中に覚える）→ 先頭の設定のコメントの接続
    * （0.8 までのレポートの .sql。読むだけ）→ 自動（つないでいる接続が 1 つならそれ、接続が 1 つしかなければそれ）
@@ -376,7 +383,7 @@ export class SqlEditing implements vscode.Disposable {
   }
 
   /**
-   * 範囲の中の名前のうち、論理名を出すもの（別名が論理名と同じものは除く）。
+   * 範囲の中の名前のうち、論理名を出すもの（別名が論理名と同じもの、同じ行のコメントに論理名があるものは除く）。
    * 接続が決まっていない・接続できないときは空
    */
   async logicalNamesIn(
@@ -394,10 +401,12 @@ export class SqlEditing implements vscode.Disposable {
         from,
         to,
       });
-      return symbols.filter((symbol) => {
+      const shown = symbols.filter((symbol) => {
         const name = logicalNameOf(symbol);
         return name !== undefined && symbol.alias !== name;
       });
+      // 行の後ろに「-- 論理名」と書いてあれば、同じことを札で重ねて出さない（D-49）
+      return withoutCommentedNames(source.dialect, document.getText(), shown);
     } catch {
       this.failedAt.set(source.id, Date.now());
       return [];
@@ -491,13 +500,21 @@ export class SqlEditing implements vscode.Disposable {
       { title: "この .sql の補完・実行に使う接続" },
     );
     if (!picked) return false;
+    await this.setConnection(document, picked.profile?.name ?? "");
+    return true;
+  }
+
+  /** この .sql の補完・実行に使う接続を覚える（空文字は「使わない」） */
+  async setConnection(
+    document: vscode.TextDocument,
+    name: string,
+  ): Promise<void> {
     const map = { ...this.fileConnections() };
-    map[document.uri.toString()] = picked.profile?.name ?? "";
+    map[document.uri.toString()] = name;
     await this.state.update(FILE_CONNECTIONS_KEY, map);
     this.updateStatus();
     this.hintsChanged.fire();
     this.connectionChanged.fire(document);
-    return true;
   }
 }
 

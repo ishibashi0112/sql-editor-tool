@@ -24,7 +24,8 @@ const PRETTIER_SQL = "inferrinizzard.prettier-sql-vscode";
 
 type Settings = Omit<SqlFormatOptions, "tabWidth" | "useTabs">;
 
-function settings(): Settings {
+/** 整形の設定（sqlEditorTool.format.*）。「SQL を生成」（D-49）も、AND の位置をこれに合わせる */
+export function formatSettings(): Settings {
   const config = vscode.workspace.getConfiguration(SECTION);
   const d = DEFAULT_FORMAT_OPTIONS;
   return {
@@ -141,7 +142,7 @@ export class SqlFormatting
   ): string | null {
     const { profile } = this.editing.connectionFor(document);
     const result = formatSql(getDialect(dialectOf(profile)), text, {
-      ...settings(),
+      ...formatSettings(),
       tabWidth: options.tabSize,
       useTabs: !options.insertSpaces,
     });

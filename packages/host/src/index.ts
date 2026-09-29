@@ -133,6 +133,7 @@ export {
   resolveSymbols,
   type SqlSymbol,
   symbolAt,
+  withoutCommentedNames,
 } from "./sqlSymbols";
 export {
   type DateTimeParts,

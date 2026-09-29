@@ -59,6 +59,16 @@ describe("completionContext", () => {
     });
   });
 
+  test("UPDATE・INSERT INTO・DELETE の後もテーブル名（FOR UPDATE などは除く）", () => {
+    expect(at("UPDATE |")).toEqual({ kind: "table", prefix: "" });
+    expect(at("INSERT INTO 受|")).toEqual({ kind: "table", prefix: "受" });
+    expect(at("DELETE |", oracle)).toMatchObject({ kind: "table" });
+    expect(at("MERGE INTO |")).toMatchObject({ kind: "table" });
+    expect(at("SELECT * FROM 受注 FOR UPDATE |", oracle)).toMatchObject({
+      kind: "general",
+    });
+  });
+
   test("それ以外はキーワード（打ちかけの語を prefix に）", () => {
     expect(at("SELECT * FROM 受注 WHERE 数量 > 1 OR|")).toEqual({
       kind: "general",
@@ -139,6 +149,35 @@ GO
 SELECT * FROM 品目 a`;
     expect(refs(text)).toEqual([
       { schema: null, name: "得意先", alias: "a", cte: false },
+    ]);
+  });
+
+  test("UPDATE・INSERT INTO・DELETE の表（INSERT の ( は列の並び）", () => {
+    expect(refs("UPDATE dbo.受注 SET 数量 = | WHERE 番号 = 1")).toEqual([
+      { schema: "dbo", name: "受注", alias: null, cte: false },
+    ]);
+    expect(refs("INSERT INTO 受注 (番号, |) VALUES (1, 2)")).toEqual([
+      { schema: null, name: "受注", alias: null, cte: false },
+    ]);
+    expect(refs("DELETE 受注 WHERE 番号 = |", oracle)).toEqual([
+      { schema: null, name: "受注", alias: null, cte: false },
+    ]);
+    expect(refs("DELETE FROM 受注 WHERE 番号 = |")).toEqual([
+      { schema: null, name: "受注", alias: null, cte: false },
+    ]);
+    // SQL Server の UPDATE 別名 … FROM 表 別名、DELETE 別名 FROM 表 別名 は、FROM の表だけ
+    expect(
+      refs("UPDATE j SET 数量 = | FROM 受注 j JOIN 得意先 t ON t.a = j.a"),
+    ).toEqual([
+      { schema: null, name: "受注", alias: "j", cte: false },
+      { schema: null, name: "得意先", alias: "t", cte: false },
+    ]);
+    expect(refs("DELETE j FROM 受注 j WHERE j.| = 1")).toEqual([
+      { schema: null, name: "受注", alias: "j", cte: false },
+    ]);
+    // SELECT … FOR UPDATE の UPDATE の後は表ではない
+    expect(refs("SELECT | FROM 受注 FOR UPDATE OF 数量", oracle)).toEqual([
+      { schema: null, name: "受注", alias: null, cte: false },
     ]);
   });
 
@@ -237,9 +276,52 @@ WITH w AS (SELECT 1 AS x) SELECT * FROM w`),
     }
   });
 
-  test("問い合わせ以外（INSERT ... SELECT など）の途中では分けない", () => {
-    const text = "INSERT INTO x (a)\nSELECT a FROM y";
-    expect(statements(text)).toEqual([text]);
+  test("; なしで並べた INSERT・UPDATE・DELETE も分ける（SQL の生成、D-49）", () => {
+    expect(
+      statements(`SELECT * FROM 受注 ORDER BY 番号
+INSERT INTO 受注 (番号, 数量) VALUES (:番号, :数量)
+SELECT * FROM 得意先
+UPDATE 受注 SET 数量 = :数量 WHERE 番号 = :番号
+DELETE FROM 受注 WHERE 番号 = :番号
+SELECT 1
+WITH w AS (SELECT 1 AS x) SELECT * FROM w`),
+    ).toEqual([
+      "SELECT * FROM 受注 ORDER BY 番号",
+      "INSERT INTO 受注 (番号, 数量) VALUES (:番号, :数量)",
+      "SELECT * FROM 得意先",
+      "UPDATE 受注 SET 数量 = :数量 WHERE 番号 = :番号",
+      "DELETE FROM 受注 WHERE 番号 = :番号",
+      "SELECT 1",
+      "WITH w AS (SELECT 1 AS x) SELECT * FROM w",
+    ]);
+    // WITH の本体が書き込み（SQL Server）でも、その後の文は分ける
+    expect(
+      statements(
+        "WITH w AS (SELECT 1 AS x) UPDATE t SET a = 1 FROM w\nSELECT * FROM t",
+      ),
+    ).toEqual([
+      "WITH w AS (SELECT 1 AS x) UPDATE t SET a = 1 FROM w",
+      "SELECT * FROM t",
+    ]);
+  });
+
+  test("1 つの文の中の INSERT・UPDATE・DELETE・SELECT では分けない", () => {
+    const one = [
+      "INSERT INTO x (a)\nSELECT a FROM y",
+      "INSERT INTO x (a)\nSELECT a FROM y UNION ALL SELECT a FROM z",
+      "INSERT INTO x WITH w AS (SELECT 1 AS a) SELECT a FROM w",
+      "WITH w AS (SELECT 1 AS a) INSERT INTO x SELECT a FROM w",
+      "INSERT ALL INTO x VALUES (1) INTO y VALUES (2) SELECT * FROM dual",
+      "SELECT * FROM 受注 WHERE 番号 = 1 FOR UPDATE",
+      "SELECT * FROM 受注 FOR UPDATE OF 数量 NOWAIT",
+      "UPDATE t SET a = (SELECT MAX(a) FROM u) WHERE b IN (SELECT b FROM v)",
+      "DELETE FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a)",
+      "MERGE INTO t USING u ON (t.a = u.a)\nWHEN MATCHED THEN UPDATE SET t.b = u.b\nWHEN NOT MATCHED THEN INSERT (a, b) VALUES (u.a, u.b)",
+    ];
+    for (const text of one) {
+      expect(statements(text, oracle)).toEqual([text]);
+      expect(statements(text)).toEqual([text]);
+    }
   });
 
   test("書きかけ（閉じていない括弧・文字列）でも例外にしない", () => {

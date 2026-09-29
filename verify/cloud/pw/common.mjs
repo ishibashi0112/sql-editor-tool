@@ -48,6 +48,15 @@ export async function command(page, text) {
   await page.waitForTimeout(700);
 }
 
+/** 開いている右クリックのメニューで、labels の順に項目を選ぶ（サブメニューもたどる。項目の文字と同じもの） */
+export async function chooseMenu(page, labels) {
+  for (const label of labels) {
+    const exact = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+    await page.locator(".context-view .action-label", { hasText: exact }).last().click();
+    await page.waitForTimeout(700);
+  }
+}
+
 /** selector の要素がある Webview のフレーム（見つからなければ null） */
 export async function frameWith(page, selector, tries = 20) {
   for (let i = 0; i < tries; i++) {

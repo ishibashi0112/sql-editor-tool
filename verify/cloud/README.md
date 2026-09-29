@@ -16,12 +16,15 @@ cd verify/cloud/pw && npm install                                        # Playw
 node connect.mjs                                                         # 接続「検証DB」を追加する（最初に 1 回）
 node run-sql.mjs                                                         # .sql の実行を確かめる
 node diff-camera.mjs                                                     # 差分カメラを通しで確かめる
+node generate-sql.mjs                                                    # SQL の生成（テーブルの右クリック → SELECT → 実行）を確かめる
+node generate-dml.mjs                                                    # SQL の生成の INSERT・UPDATE・DELETE（実行しないこと、文の区切り）を確かめる
 ```
 
 - 初回の `start.sh` は、code-server を入れるので 2〜3 分かかります（`install-code-server.sh`）。2 回目からはすぐです。
 - 環境が止まって起き直したとき（dockerd と code-server が止まります）は、`start.sh` をもう一度実行すれば戻ります。何度実行してもかまいません。
 - 拡張を直したら、vsix を作り直して `start.sh <vsix>` を実行します（code-server を止めて入れ直し、起こし直します）。開いているブラウザは読み込み直してください。
 - スクリーンショットやコピーした中身は、作業フォルダの `shots/` に出ます。
+- 架空の表は、DB「検証」がないときに `mssql/setup.sql` で作ります。主キーが 2 列の表 `ORDER_LINES`（SQL の生成の確認用）は 0.13.0 のときに足したので、それより前に作った DB にはありません（`mssql/setup.sql` の `ORDER_LINES` の部分を `USE 検証;` の後に流すか、コンテナ `mssql` を消して `start.sh` で作り直します）。
 
 ## 作業フォルダ
 
@@ -53,6 +56,7 @@ node diff-camera.mjs                                                     # 差�
 - QuickPick の複数選択は、チェックボックスをクリックしてから Enter では決まらない。行をクリックしてから「OK」を押す。
 - code-server のファイルの選択（保存先など）はパスを打つ欄。打った後は Enter ではなく「OK」を押す（Enter は下の一覧の項目に当たる）。フォルダを選ぶときは末尾の `/` を付けない。
 - 名前が「日」で終わる入力欄は日付の欄になり、`fill` には `2026-09-01` の形で入れる。
+- 右クリックのメニューのサブメニュー（「SQL を生成 ▸ SELECT…」など）は、`chooseMenu(page, ["SQL を生成", "SELECT…"])` でたどる。
 - code-server の設定（`csud/User/settings.json`）をファイルで書き換えても、開いている画面には効かない。画面を読み込み直す。
 
 ## Oracle で確かめるとき
