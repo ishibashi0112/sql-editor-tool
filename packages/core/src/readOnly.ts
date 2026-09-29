@@ -3,7 +3,8 @@
 // 書き込みの文が紛れ込んでも DB に届かないよう、最後にもう一度確かめる
 
 import { type Token, tokenize } from "./baseSql";
-import { type DialectName, getDialect } from "./dialect";
+import { scan } from "./completion";
+import { type Dialect, type DialectName, getDialect } from "./dialect";
 
 /**
  * 問い合わせに現れてはいけない語（書き込み、定義の変更、権限、プロシージャの実行、FOR UPDATE）。
@@ -54,4 +55,33 @@ function readOnlyError(reason: string): Error {
   return new Error(
     `読み取り専用のため、SELECT / WITH の問い合わせ以外は実行しません（${reason}）`,
   );
+}
+
+/** 問い合わせではない文の頭の語（このツールでは実行しない） */
+const WRITE_HEADS = new Set([...FORBIDDEN_WORDS].filter((w) => w !== "INTO"));
+
+/**
+ * 書き込みや定義の変更などの文なら、その頭の語（INSERT・UPDATE など。WITH … UPDATE のような SQL Server の書き方は本体の語）。
+ * 問い合わせ（SELECT・WITH … SELECT）やそれ以外なら null。
+ * .sql の実行（D-41）で、DB に問い合わせる前に「実行しません」と知らせ、▶ 実行 を出さないのに使う（SQL の生成、D-49）
+ */
+export function writeStatementKeyword(
+  dialect: Dialect,
+  text: string,
+): string | null {
+  const words = scan(dialect, text).tokens.filter(
+    (t) => t.kind === "word" && t.depth === 0,
+  );
+  const [first] = words;
+  if (!first) return null;
+  let head = first.text.toUpperCase();
+  if (head === "WITH") {
+    const body = words.find((t) =>
+      ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"].includes(
+        t.text.toUpperCase(),
+      ),
+    );
+    head = body?.text.toUpperCase() ?? head;
+  }
+  return WRITE_HEADS.has(head) ? head : null;
 }

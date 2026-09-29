@@ -17,6 +17,7 @@ node connect.mjs                                                         # 接�
 node run-sql.mjs                                                         # .sql の実行を確かめる
 node diff-camera.mjs                                                     # 差分カメラを通しで確かめる
 node generate-sql.mjs                                                    # SQL の生成（テーブルの右クリック → SELECT → 実行）を確かめる
+node generate-dml.mjs                                                    # SQL の生成の INSERT・UPDATE・DELETE（実行しないこと、文の区切り）を確かめる
 ```
 
 - 初回の `start.sh` は、code-server を入れるので 2〜3 分かかります（`install-code-server.sh`）。2 回目からはすぐです。
@@ -55,6 +56,7 @@ node generate-sql.mjs                                                    # SQL �
 - QuickPick の複数選択は、チェックボックスをクリックしてから Enter では決まらない。行をクリックしてから「OK」を押す。
 - code-server のファイルの選択（保存先など）はパスを打つ欄。打った後は Enter ではなく「OK」を押す（Enter は下の一覧の項目に当たる）。フォルダを選ぶときは末尾の `/` を付けない。
 - 名前が「日」で終わる入力欄は日付の欄になり、`fill` には `2026-09-01` の形で入れる。
+- 右クリックのメニューのサブメニュー（「SQL を生成 ▸ SELECT…」など）は、`chooseMenu(page, ["SQL を生成", "SELECT…"])` でたどる。
 - code-server の設定（`csud/User/settings.json`）をファイルで書き換えても、開いている画面には効かない。画面を読み込み直す。
 
 ## Oracle で確かめるとき

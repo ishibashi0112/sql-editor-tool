@@ -23,6 +23,8 @@ export const STATE_KEYS = {
   diffCameras: "sqlEditorTool.diffCameras",
   /** 「SQL を生成」で最後に選んだ付けるもの（D-49） */
   generateSqlOptions: "sqlEditorTool.generateSqlOptions",
+  /** 「SQL を生成」で最後に作った種類（SELECT・INSERT・UPDATE・DELETE） */
+  generateSqlKind: "sqlEditorTool.generateSqlKind",
 } as const;
 
 type ParamSettings = Record<string, ReportParamConfig>;

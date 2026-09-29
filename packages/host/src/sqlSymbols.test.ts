@@ -147,6 +147,38 @@ WHERE EXISTS (SELECT 1 FROM ITEMS i WHERE i.ITEM_CD = o.ITEM_CD)`;
   });
 });
 
+describe("resolveSymbols：INSERT・UPDATE・DELETE（SQL の生成、D-49）", () => {
+  test("UPDATE の表・SET と WHERE の列、INSERT INTO の表と列の並び", async () => {
+    const text = `UPDATE APP.ORDERS
+SET
+    QTY = :QTY
+WHERE
+    ORDER_NO = :ORDER_NO
+INSERT INTO
+    APP.ORDERS (ORDER_NO, QTY)
+VALUES
+    (:ORDER_NO, :QTY)
+DELETE FROM APP.ORDERS
+WHERE
+    LINE_NO = :LINE_NO`;
+    const symbols = await resolveSymbols({
+      dialect: "mssql",
+      text,
+      cache: cache(),
+    });
+    expect(symbols.map(describeSymbol(text))).toEqual([
+      "ORDERS=受注明細",
+      "QTY=数量",
+      "ORDER_NO🔑=受注番号",
+      "ORDERS=受注明細",
+      "ORDER_NO🔑=受注番号",
+      "QTY=数量",
+      "ORDERS=受注明細",
+      "LINE_NO🔑=行番号",
+    ]);
+  });
+});
+
 describe("withoutCommentedNames", () => {
   test("同じ行の後ろのコメントに論理名がある名前は、札を出さない", async () => {
     const text = `SELECT

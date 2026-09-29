@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { assertReadOnlyQuery } from "./readOnly";
+import { mssql, oracle } from "./dialect";
+import { assertReadOnlyQuery, writeStatementKeyword } from "./readOnly";
 import { buildSelect } from "./select";
 import { columns } from "./testColumns";
 
@@ -67,5 +68,41 @@ describe("assertReadOnlyQuery", () => {
     expect(() => assertReadOnlyQuery("oracle", "SELECT 'abc FROM t")).toThrow(
       "解釈できません",
     );
+  });
+});
+
+describe("writeStatementKeyword", () => {
+  test("書き込み・定義の変更などの文は、その頭の語", () => {
+    expect(writeStatementKeyword(mssql, "INSERT INTO t VALUES (1)")).toBe(
+      "INSERT",
+    );
+    expect(writeStatementKeyword(oracle, "-- 受注\nupdate t set a = 1")).toBe(
+      "UPDATE",
+    );
+    expect(writeStatementKeyword(mssql, "DELETE FROM t")).toBe("DELETE");
+    expect(writeStatementKeyword(mssql, "MERGE INTO t USING u ON 1 = 1")).toBe(
+      "MERGE",
+    );
+    expect(writeStatementKeyword(mssql, "TRUNCATE TABLE t")).toBe("TRUNCATE");
+    expect(writeStatementKeyword(mssql, "EXEC sp_who")).toBe("EXEC");
+    // SQL Server の WITH … UPDATE は本体の語
+    expect(
+      writeStatementKeyword(
+        mssql,
+        "WITH w AS (SELECT * FROM t) UPDATE w SET a = 1",
+      ),
+    ).toBe("UPDATE");
+  });
+
+  test("問い合わせは null（FOR UPDATE や、副問い合わせの中の語では決めない）", () => {
+    for (const text of [
+      "SELECT * FROM t",
+      "WITH w AS (SELECT 1 AS a) SELECT * FROM w",
+      "SELECT * FROM t FOR UPDATE",
+      "/* DELETE */ SELECT 'INSERT' FROM t",
+      "",
+    ]) {
+      expect(writeStatementKeyword(oracle, text)).toBeNull();
+    }
   });
 });

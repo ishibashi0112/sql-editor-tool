@@ -1,4 +1,4 @@
-// SQL の生成（D-49）を通しで確かめる：テーブル検索の右クリック「SQL を生成…」→ 付けるものを選ぶ（前の選び方のまま Enter）→
+// SQL の生成（D-49）を通しで確かめる：テーブル検索の右クリック「SQL を生成 ▸ SELECT…」→ 付けるものを選ぶ（前の選び方のまま Enter）→
 // 新しいエディタに SELECT（論理名のコメント、主キーの :名前、主キーの順）→ 整形しても形が変わらない →
 // Ctrl+Enter → 主キーの入力欄（論理名）に値 → 1 行。
 // 続けて、.sql の右クリック「テーブルから SQL を生成（カーソルの位置に入れる）」で別の表を入れ、
@@ -6,7 +6,7 @@
 // 表は架空の DB「検証」の ORDER_LINES（主キー 2 列）と CUSTOMERS
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { collapseViews, command, frameWith, open, shot, text, WORK } from "./common.mjs";
+import { chooseMenu, collapseViews, command, frameWith, open, shot, text, WORK } from "./common.mjs";
 
 const { browser, page } = await open();
 await command(page, "View: Close All Editors");
@@ -26,12 +26,12 @@ await page.waitForTimeout(800);
 const row = search.locator(".item", { hasText: "ORDER_LINES" }).first();
 console.log("検索の結果：", await text(row));
 
-// 右クリック → 「SQL を生成…」
+// 右クリック → 「SQL を生成 ▸ SELECT…」
 await row.click({ button: "right" });
 await page.waitForTimeout(800);
 await shot(page, "generate-sql-1-menu");
-await page.locator(".context-view .action-label", { hasText: "SQL を生成…" }).first().click();
-await page.waitForTimeout(2500);
+await chooseMenu(page, ["SQL を生成", "SELECT…"]);
+await page.waitForTimeout(2000);
 console.log("付けるもの：", (await text(page.locator(".quick-input-widget"))).slice(0, 600));
 await shot(page, "generate-sql-2-options");
 await page.keyboard.press("Enter");
@@ -76,10 +76,12 @@ await page.keyboard.press("Control+End");
 await page.keyboard.press("Enter");
 await page.keyboard.press("Shift+F10");
 await page.waitForTimeout(1000);
-const menuItem = page.locator(".context-view .action-label", { hasText: "テーブルから SQL を生成" }).first();
-console.log("エディタの右クリックの項目：", await menuItem.count());
+console.log(
+  "エディタの右クリックの項目：",
+  await page.locator(".context-view .action-label", { hasText: "テーブルから SQL を生成" }).count(),
+);
 await shot(page, "generate-sql-5-editor-menu");
-await menuItem.click();
+await chooseMenu(page, ["テーブルから SQL を生成（カーソルの位置に入れる）", "SELECT…"]);
 await page.waitForTimeout(1500);
 await page.keyboard.type("得意先");
 await page.waitForTimeout(800);
@@ -108,7 +110,7 @@ console.log("保存した後のタブ：", await text(page.locator(".tabs-contai
 console.log("保存した後のステータスバー：", await text(page.locator(".statusbar")));
 await shot(page, "generate-sql-8-saved");
 
-// 接続のツリーの表の右クリックにも「SQL を生成…」がある
+// 接続のツリーの表の右クリックにも「SQL を生成 ▸ SELECT…」がある
 await collapseViews(page, ["テーブル検索"]);
 const connection = page.locator(".monaco-list-row", { hasText: "検証DB" }).first();
 if ((await connection.getAttribute("aria-expanded")) !== "true") await connection.click();
@@ -120,8 +122,8 @@ await page.locator(".monaco-list-row", { hasText: "CUSTOMERS" }).first().click({
 await page.waitForTimeout(800);
 console.log("ツリーの右クリック：", await text(page.locator(".context-view").first()));
 await shot(page, "generate-sql-9-tree-menu");
-await page.locator(".context-view .action-label", { hasText: "SQL を生成…" }).first().click();
-await page.waitForTimeout(2000);
+await chooseMenu(page, ["SQL を生成", "SELECT…"]);
+await page.waitForTimeout(1500);
 // 前に外したスキーマ名は外れたまま（5 つのうち 4 つ）。付け直して、次に流したときも同じ選び方から始める
 console.log("覚えた選び方：", (await text(page.locator(".quick-input-widget"))).slice(0, 80));
 await page.locator(".quick-input-list .monaco-list-row", { hasText: "スキーマ名を付ける" }).first().click();

@@ -63,13 +63,15 @@ export {
 export {
   DEFAULT_GENERATE_LAYOUT,
   DEFAULT_GENERATE_OPTIONS,
+  GENERATE_OPTION_KEYS,
   type GeneratedParam,
-  type GeneratedSelect,
-  type GenerateSelectInput,
-  type GenerateSelectLayout,
-  type GenerateSelectOptions,
+  type GeneratedSql,
+  type GenerateInput,
+  type GenerateKind,
+  type GenerateLayout,
+  type GenerateOptions,
   generatedTitle,
-  generateSelect,
+  generateSql,
   paramTypeForColumn,
 } from "./generateSql";
 export {
@@ -77,7 +79,7 @@ export {
   shortLogicalName,
   splitDbComment,
 } from "./logicalName";
-export { assertReadOnlyQuery } from "./readOnly";
+export { assertReadOnlyQuery, writeStatementKeyword } from "./readOnly";
 export {
   isRelativeDate,
   resolveDateValue,

@@ -1,17 +1,20 @@
-// テーブルから SQL を生成する（D-49。A5:SQL Mk-2 の「SQL の生成」をまねる）。
-// 接続のツリー・テーブル検索の右クリック（とコマンドパレット）では、新しいエディタに開く。
-// .sql の右クリックでは、表を選んでカーソルの位置に入れる。
-// 開いたエディタには、表の接続を覚え（Ctrl+Enter ですぐ実行できる）、主キーの入力欄に論理名と種類を付けておく
+// テーブルから SQL を生成する（D-49。A5:SQL Mk-2 の「SQL の生成」をまねる）。SELECT・INSERT・UPDATE・DELETE。
+// 接続のツリー・テーブル検索の右クリック（「SQL を生成 ▸ 種類」。コマンドパレットからは表の後に種類を選ぶ）では、
+// 新しいエディタに開く。.sql の右クリックでは、表を選んでカーソルの位置に入れる。
+// 開いたエディタには、表の接続を覚える（補完・論理名、SELECT は Ctrl+Enter ですぐ実行できる）。
+// SELECT は主キーの入力欄に論理名と種類を付けておく。INSERT・UPDATE・DELETE はこのツールでは実行しない（読み取り専用）
 
 import {
   applyTableSettings,
   DEFAULT_GENERATE_LAYOUT,
   DEFAULT_GENERATE_OPTIONS,
+  GENERATE_OPTION_KEYS,
   type GeneratedParam,
-  type GenerateSelectLayout,
-  type GenerateSelectOptions,
+  type GenerateKind,
+  type GenerateLayout,
+  type GenerateOptions,
   generatedTitle,
-  generateSelect,
+  generateSql,
   getDialect,
   paramTypeForColumn,
   type ReportParamConfig,
@@ -46,7 +49,25 @@ type SearchContext = {
 /** 生成した SQL をどこに出すか */
 type Output = "editor" | "cursor";
 
-type OptionItem = vscode.QuickPickItem & { key: keyof GenerateSelectOptions };
+type OptionItem = vscode.QuickPickItem & { key: keyof GenerateOptions };
+
+const KINDS: readonly GenerateKind[] = ["select", "insert", "update", "delete"];
+
+/** 種類の名前（メニュー・一覧の見出し） */
+const KIND_LABELS: Record<GenerateKind, string> = {
+  select: "SELECT",
+  insert: "INSERT",
+  update: "UPDATE",
+  delete: "DELETE",
+};
+
+/** 種類の説明（コマンドパレットから選ぶときの一覧） */
+const KIND_DESCRIPTIONS: Record<GenerateKind, string> = {
+  select: "取り出す（主キーで絞ると、実行したときに入力欄になります）",
+  insert: "行を足す（このツールでは実行しません）",
+  update: "主キーの行を変える（このツールでは実行しません）",
+  delete: "主キーの行を消す（このツールでは実行しません）",
+};
 
 const COPY_BUTTON: vscode.QuickInputButton = {
   iconPath: new vscode.ThemeIcon("copy"),
@@ -64,13 +85,25 @@ export class SqlGeneration implements vscode.Disposable {
     },
   ) {
     this.disposables.push(
+      // コマンドパレット：表の後に種類を選ぶ
       vscode.commands.registerCommand(
         "sqlEditorTool.generateSql",
-        (arg?: unknown) => this.run(() => this.generateNew(arg)),
+        (arg?: unknown) => this.run(() => this.generateNew(arg, undefined)),
       ),
       vscode.commands.registerCommand("sqlEditorTool.generateSqlHere", () =>
-        this.run(() => this.generateHere()),
+        this.run(() => this.generateHere(undefined)),
       ),
+      // 右クリックの「SQL を生成 ▸ 種類」
+      ...KINDS.flatMap((kind) => [
+        vscode.commands.registerCommand(
+          `sqlEditorTool.generateSql.${kind}`,
+          (arg?: unknown) => this.run(() => this.generateNew(arg, kind)),
+        ),
+        vscode.commands.registerCommand(
+          `sqlEditorTool.generateSqlHere.${kind}`,
+          () => this.run(() => this.generateHere(kind)),
+        ),
+      ]),
     );
   }
 
@@ -88,14 +121,22 @@ export class SqlGeneration implements vscode.Disposable {
     }
   }
 
-  /** ツリー・テーブル検索の右クリック（表が決まっている）か、コマンドパレット（接続と表を選ぶ）から、新しいエディタに */
-  private async generateNew(arg: unknown): Promise<void> {
-    const target = this.targetOf(arg) ?? (await this.chooseTarget());
-    if (target) await this.generate(target, "editor");
+  /**
+   * ツリー・テーブル検索の右クリック（表が決まっている）か、コマンドパレット（接続と表を選ぶ）から、新しいエディタに。
+   * kind がなければ選ぶ
+   */
+  private async generateNew(
+    arg: unknown,
+    kind: GenerateKind | undefined,
+  ): Promise<void> {
+    const target = this.targetOf(arg) ?? (await this.chooseTarget(kind));
+    if (!target) return;
+    const chosen = kind ?? (await this.pickKind(target));
+    if (chosen) await this.generate(target, chosen, "editor");
   }
 
   /** .sql の右クリック：その .sql の接続の表を選び、カーソルの位置に入れる */
-  private async generateHere(): Promise<void> {
+  private async generateHere(kind: GenerateKind | undefined): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isSqlDocument(editor.document)) return;
     let { profile } = this.deps.editing.connectionFor(editor.document);
@@ -104,8 +145,32 @@ export class SqlGeneration implements vscode.Disposable {
       profile = this.deps.editing.connectionFor(editor.document).profile;
       if (!profile) return;
     }
-    const picked = await this.pickTable(profile);
-    if (picked) await this.generate({ profile, ...picked }, "cursor", editor);
+    const picked = await this.pickTable(profile, kind);
+    if (!picked) return;
+    const target = { profile, ...picked };
+    const chosen = kind ?? (await this.pickKind(target));
+    if (chosen) await this.generate(target, chosen, "cursor", editor);
+  }
+
+  /** 種類を選ぶ（前に選んだ種類から始める） */
+  private async pickKind(target: Target): Promise<GenerateKind | undefined> {
+    const last = this.deps.state.get<string>(STATE_KEYS.generateSqlKind);
+    type KindItem = vscode.QuickPickItem & { sqlKind: GenerateKind };
+    const items: KindItem[] = KINDS.map((kind) => ({
+      label: KIND_LABELS[kind],
+      description: KIND_DESCRIPTIONS[kind],
+      sqlKind: kind,
+    }));
+    const quickPick = vscode.window.createQuickPick<KindItem>();
+    quickPick.title = `SQL を生成：${generatedTitle(target)}`;
+    quickPick.placeholder = "作る SQL の種類";
+    quickPick.items = items;
+    quickPick.activeItems = items.filter((item) => item.sqlKind === last);
+    return runQuickPick(
+      quickPick,
+      async () => {},
+      () => quickPick.selectedItems[0]?.sqlKind,
+    );
   }
 
   private targetOf(arg: unknown): Target | undefined {
@@ -134,7 +199,9 @@ export class SqlGeneration implements vscode.Disposable {
   }
 
   /** コマンドパレットから：接続（1 つならそれ）と表を選ぶ */
-  private async chooseTarget(): Promise<Target | undefined> {
+  private async chooseTarget(
+    kind: GenerateKind | undefined,
+  ): Promise<Target | undefined> {
     const profiles = this.deps.store.list();
     if (profiles.length === 0) {
       void vscode.window.showWarningMessage(
@@ -151,18 +218,19 @@ export class SqlGeneration implements vscode.Disposable {
       profile = picked?.p;
     }
     if (!profile) return undefined;
-    const picked = await this.pickTable(profile);
+    const picked = await this.pickTable(profile, kind);
     return picked ? { profile, ...picked } : undefined;
   }
 
   /** 表を選ぶ（論理名でも探せる） */
   private pickTable(
     profile: ConnectionProfile,
+    kind: GenerateKind | undefined,
   ): Promise<Omit<Target, "profile"> | undefined> {
     const quickPick = vscode.window.createQuickPick<
       vscode.QuickPickItem & Omit<Target, "profile">
     >();
-    quickPick.title = `SQL を生成：表を選ぶ（${profile.name}）`;
+    quickPick.title = `${kind ? KIND_LABELS[kind] : "SQL"} を生成：表を選ぶ（${profile.name}）`;
     quickPick.placeholder = "表の名前か論理名の一部";
     quickPick.matchOnDescription = true;
     return runQuickPick(
@@ -189,17 +257,20 @@ export class SqlGeneration implements vscode.Disposable {
 
   private async generate(
     target: Target,
+    kind: GenerateKind,
     output: Output,
     editor?: vscode.TextEditor,
   ): Promise<void> {
-    const picked = await this.pickOptions(target, output);
+    const picked = await this.pickOptions(target, kind, output);
     if (!picked) return;
     const { description, options, copy } = picked;
     await this.deps.state.update(STATE_KEYS.generateSqlOptions, options);
+    await this.deps.state.update(STATE_KEYS.generateSqlKind, kind);
     const { profile, table } = target;
     const keys = this.keysOf(profile, table, description);
-    const { sql, params } = generateSelect(
+    const { sql, params } = generateSql(
       getDialect(dialectOf(profile)),
+      kind,
       {
         table,
         logicalName: target.logicalName,
@@ -210,16 +281,20 @@ export class SqlGeneration implements vscode.Disposable {
       options,
       layoutFor(output === "cursor" ? editor : undefined),
     );
-    const presets = paramPresets(params);
+    // 入力欄の設定は、実行できる SELECT だけ
+    const presets = kind === "select" ? paramPresets(params) : {};
     const run = process.platform === "darwin" ? "Cmd+Enter" : "Ctrl+Enter";
     const hint =
-      params.length > 0
-        ? `${run} で実行（${params.map((p) => p.column.logicalName ?? p.name).join("・")}は入力欄に）`
-        : `${run} で実行`;
+      kind !== "select"
+        ? "このツールは読み取り専用なので実行しません。A5 やプログラムに貼って使ってください"
+        : params.length > 0
+          ? `${run} で実行（${params.map((p) => p.column.logicalName ?? p.name).join("・")}は入力欄に）`
+          : `${run} で実行`;
+    const what = KIND_LABELS[kind];
 
     if (copy) {
       await vscode.env.clipboard.writeText(sql);
-      void vscode.window.setStatusBarMessage("SQL をコピーしました", 4000);
+      void vscode.window.setStatusBarMessage(`${what} をコピーしました`, 4000);
       return;
     }
     if (output === "cursor" && editor) {
@@ -232,7 +307,10 @@ export class SqlGeneration implements vscode.Disposable {
       const done = await editor.edit((edit) => edit.replace(selection, text));
       if (!done) return;
       await addParamSettings(this.deps.state, document.uri.toString(), presets);
-      void vscode.window.setStatusBarMessage(`SQL を入れました。${hint}`, 6000);
+      void vscode.window.setStatusBarMessage(
+        `${what} を入れました。${hint}`,
+        8000,
+      );
       return;
     }
     const document = await vscode.workspace.openTextDocument({
@@ -245,58 +323,78 @@ export class SqlGeneration implements vscode.Disposable {
     await addParamSettings(this.deps.state, uri, presets);
     await this.deps.editing.setConnection(document, profile.name);
     await vscode.window.showTextDocument(document, { preview: false });
-    void vscode.window.setStatusBarMessage(`SQL を生成しました。${hint}`, 8000);
+    void vscode.window.setStatusBarMessage(
+      `${what} を生成しました。${hint}`,
+      8000,
+    );
   }
 
   /** 付けるものを選ぶ（前に選んだものから始める）。列を読み込む間も画面を出しておく */
   private pickOptions(
     target: Target,
+    kind: GenerateKind,
     output: Output,
   ): Promise<
     | {
         description: TableDescription;
-        options: GenerateSelectOptions;
+        options: GenerateOptions;
         copy: boolean;
       }
     | undefined
   > {
-    const { profile, table, logicalName } = target;
+    const { profile, table } = target;
     const quickPick = vscode.window.createQuickPick<OptionItem>();
-    quickPick.title = `SQL を生成：${table.schema}.${table.name}${logicalName ? `（${logicalName}）` : ""}`;
-    quickPick.placeholder =
+    quickPick.title = `${KIND_LABELS[kind]} を生成：${generatedTitle(target)}`;
+    const where =
       output === "cursor"
-        ? "付けるものを選んで Enter（カーソルの位置に入れます）"
-        : "付けるものを選んで Enter（新しいエディタに開きます）";
+        ? "カーソルの位置に入れます"
+        : "新しいエディタに開きます";
+    quickPick.placeholder = `付けるものを選んで Enter（${where}）`;
     quickPick.canSelectMany = true;
     quickPick.buttons = [COPY_BUTTON];
+    const saved: GenerateOptions = {
+      ...DEFAULT_GENERATE_OPTIONS,
+      ...this.deps.state.get<Partial<GenerateOptions>>(
+        STATE_KEYS.generateSqlOptions,
+        {},
+      ),
+    };
     let description: TableDescription | undefined;
     return runQuickPick(
       quickPick,
       async () => {
         description = await this.deps.editing.cacheFor(profile).describe(table);
-        quickPick.items = this.optionItems(target, description);
-        const saved = {
-          ...DEFAULT_GENERATE_OPTIONS,
-          ...this.deps.state.get<Partial<GenerateSelectOptions>>(
-            STATE_KEYS.generateSqlOptions,
-            {},
-          ),
-        };
+        const shown = new Set(GENERATE_OPTION_KEYS[kind]);
+        quickPick.items = this.optionItems(target, description).filter((item) =>
+          shown.has(item.key),
+        );
         quickPick.selectedItems = quickPick.items.filter(
           (item) => saved[item.key],
         );
+        // UPDATE・DELETE でキーがなければ、全部の行を変えないよう WHERE を空けておく
+        if (
+          (kind === "update" || kind === "delete") &&
+          this.keysOf(profile, table, description).length === 0
+        ) {
+          quickPick.placeholder = `主キーがないので、WHERE の条件は書いてください。付けるものを選んで Enter（${where}）`;
+        }
       },
       (copy) => {
         if (!description) return undefined;
         const chosen = new Set(quickPick.selectedItems.map((i) => i.key));
+        // この種類で出していないものは、前に選んだまま
+        const pick = (key: keyof GenerateOptions) =>
+          quickPick.items.some((i) => i.key === key)
+            ? chosen.has(key)
+            : saved[key];
         return {
           description,
           options: {
-            title: chosen.has("title"),
-            whereKeys: chosen.has("whereKeys"),
-            orderByKeys: chosen.has("orderByKeys"),
-            comments: chosen.has("comments"),
-            qualifySchema: chosen.has("qualifySchema"),
+            title: pick("title"),
+            whereKeys: pick("whereKeys"),
+            orderByKeys: pick("orderByKeys"),
+            comments: pick("comments"),
+            qualifySchema: pick("qualifySchema"),
           },
           copy,
         };
@@ -395,10 +493,8 @@ export class SqlGeneration implements vscode.Disposable {
  * 生成する SQL の形。.sql の整形（D-45）と同じく、インデントはエディタの設定（入れる先のエディタ。新しいエディタなら
  * SQL の言語の設定）、AND の位置は整形の設定に合わせる（生成した SQL を整形しても形が変わらないように）
  */
-function layoutFor(
-  editor: vscode.TextEditor | undefined,
-): GenerateSelectLayout {
-  const { logicalOperatorNewline } = formatSettings();
+function layoutFor(editor: vscode.TextEditor | undefined): GenerateLayout {
+  const { logicalOperatorNewline, expressionWidth } = formatSettings();
   if (editor) {
     const { tabSize, insertSpaces } = editor.options;
     return {
@@ -408,6 +504,7 @@ function layoutFor(
           : DEFAULT_GENERATE_LAYOUT.tabWidth,
       useTabs: insertSpaces === false,
       logicalOperatorNewline,
+      expressionWidth,
     };
   }
   const config = vscode.workspace.getConfiguration("editor", {
@@ -417,6 +514,7 @@ function layoutFor(
     tabWidth: config.get<number>("tabSize", DEFAULT_GENERATE_LAYOUT.tabWidth),
     useTabs: config.get<boolean>("insertSpaces", true) === false,
     logicalOperatorNewline,
+    expressionWidth,
   };
 }
 

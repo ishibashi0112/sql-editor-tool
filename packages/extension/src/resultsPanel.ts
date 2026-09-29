@@ -8,6 +8,7 @@ import {
   type ReportConfig,
   splitStatements,
   statementAt,
+  writeStatementKeyword,
 } from "@sql-editor-tool/core";
 import {
   describeResultColumns,
@@ -197,12 +198,20 @@ export class ResultsPanel
   async run(editor: vscode.TextEditor, offset?: number): Promise<void> {
     const { document } = editor;
     let profile = this.deps.editing.connectionFor(document).profile;
+    let found = targetStatements(editor, dialectOf(profile), offset);
+    // INSERT・UPDATE などの文だけなら、接続を選ぶ前に「実行しません」と知らせてやめる
+    if (found.length > 0 && splitWrites(found, profile).reads.length === 0) {
+      warnWrites(splitWrites(found, profile).writes);
+      return;
+    }
     if (!profile) {
       if (!(await this.deps.editing.choose(document))) return;
       profile = this.deps.editing.connectionFor(document).profile;
       if (!profile) return;
+      found = targetStatements(editor, dialectOf(profile), offset);
     }
-    const statements = targetStatements(editor, dialectOf(profile), offset);
+    const { reads: statements, writes } = splitWrites(found, profile);
+    warnWrites(writes);
     if (statements.length === 0) {
       void vscode.window.showInformationMessage(
         "実行する SQL がありません（SELECT か WITH で始まる文を書いてください）",
@@ -228,9 +237,12 @@ export class ResultsPanel
       .get<boolean>(CODE_LENS_SETTING, true);
     if (!enabled) return [];
     const { profile } = this.deps.editing.connectionFor(document);
-    const statements = splitStatements(
-      getDialect(dialectOf(profile)),
-      document.getText(),
+    const dialect = getDialect(dialectOf(profile));
+    const text = document.getText();
+    // INSERT・UPDATE などは実行しないので出さない（SQL の生成、D-49）
+    const statements = splitStatements(dialect, text).filter(
+      (s) =>
+        writeStatementKeyword(dialect, text.slice(s.start, s.end)) === null,
     );
     const key = process.platform === "darwin" ? "⌘+Enter" : "Ctrl+Enter";
     return statements.map((s) => {
@@ -429,6 +441,31 @@ function targetStatements(
   const at = offset ?? document.offsetAt(selection.active);
   const found = statementAt(splitStatements(getDialect(dialect), text), at);
   return found ? [toStatement(text, 0, found)] : [];
+}
+
+/**
+ * 実行する文を、問い合わせ（SELECT・WITH）と、実行しない書き込みなどの文（INSERT・UPDATE など。その頭の語）に分ける
+ * （このツールは読み取り専用。DB に送る前にドライバでも断る、D-24）
+ */
+function splitWrites(
+  statements: readonly RunStatement[],
+  profile: ConnectionProfile | undefined,
+): { reads: RunStatement[]; writes: string[] } {
+  const dialect = getDialect(dialectOf(profile));
+  const writes = new Set<string>();
+  const reads = statements.filter((s) => {
+    const word = writeStatementKeyword(dialect, s.sql);
+    if (word) writes.add(word);
+    return word === null;
+  });
+  return { reads, writes: [...writes] };
+}
+
+function warnWrites(writes: readonly string[]): void {
+  if (writes.length === 0) return;
+  void vscode.window.showWarningMessage(
+    `${writes.join("・")} の文は実行しません（このツールは読み取り専用です。SELECT・WITH の文だけ実行します）`,
+  );
 }
 
 function connectionOf(profile: ConnectionProfile): ReportConnection {

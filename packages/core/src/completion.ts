@@ -250,10 +250,13 @@ export function completionContext(
   return { kind: "general", prefix };
 }
 
-/** tokens[at] の直後がテーブル名の位置か（FROM・JOIN の直後、FROM の並びの , の直後） */
+/**
+ * tokens[at] の直後がテーブル名の位置か（FROM・JOIN の直後、FROM の並びの , の直後、
+ * UPDATE・INSERT INTO・DELETE の直後）
+ */
 function isFromPosition(tokens: readonly ScanToken[], at: number): boolean {
   const t = tokens[at];
-  if (isWord(t, "FROM", "JOIN")) return true;
+  if (isWord(t, "FROM", "JOIN") || isTargetPosition(tokens, at)) return true;
   if (!isPunct(t, ",") || !t) return false;
   // 同じ括弧の深さで、手前の句の頭が FROM か
   for (let k = at - 1; k >= 0; k -= 1) {
@@ -360,7 +363,8 @@ function readReferences(tokens: readonly ScanToken[]): RefTokens[] {
     return i;
   };
 
-  const readRef = (at: number): number => {
+  /** columnList は INSERT INTO 表 (列…) のように、名前の後の ( が列の並び（テーブル値関数ではない）のとき */
+  const readRef = (at: number, columnList = false): number => {
     let i = at;
     const first = tokens[i];
     let schema: string | null = null;
@@ -382,7 +386,7 @@ function readReferences(tokens: readonly ScanToken[]): RefTokens[] {
       schema = parts.length >= 2 ? (parts.at(-2) ?? null) : null;
       nameTokens = [at, i - 1];
       // テーブル値関数 fn(...)。列は分からない
-      if (isPunct(tokens[i], "(")) {
+      if (isPunct(tokens[i], "(") && !columnList) {
         i = closing(i) + 1;
         name = null;
         schema = null;
@@ -413,6 +417,8 @@ function readReferences(tokens: readonly ScanToken[]): RefTokens[] {
     return i;
   };
 
+  /** UPDATE・INSERT INTO・DELETE の後に書いた表（SQL Server では FROM の表の別名のこともある） */
+  const targets = new Set<RefTokens>();
   function walk(from: number, to: number): void {
     for (let i = from; i < to; ) {
       const t = tokens[i];
@@ -422,13 +428,40 @@ function readReferences(tokens: readonly ScanToken[]): RefTokens[] {
         while (isPunct(tokens[i], ",") && isWord(t, "FROM")) {
           i = readRef(i + 1);
         }
+      } else if (isTargetPosition(tokens, i)) {
+        const before = refs.length;
+        i = readRef(i + 1, isWord(t, "INTO"));
+        for (const ref of refs.slice(before)) targets.add(ref);
       } else {
         i += 1;
       }
     }
   }
   walk(0, tokens.length);
-  return refs;
+  // UPDATE 別名 SET … FROM 表 別名（SQL Server）の別名や、FROM にも書いた同じ表は、FROM の側だけにする
+  const upper = (text: string | null) => text?.toUpperCase() ?? null;
+  return refs.filter(
+    (ref) =>
+      !targets.has(ref) ||
+      !refs.some(
+        (other) =>
+          other !== ref &&
+          ((ref.schema === null && upper(other.alias) === upper(ref.name)) ||
+            (upper(other.name) === upper(ref.name) &&
+              upper(other.schema) === upper(ref.schema))),
+      ),
+  );
+}
+
+/**
+ * tokens[at] の直後に、書き込む表の名前を書くか：UPDATE 表、INSERT INTO 表・MERGE INTO 表、DELETE 表（Oracle は FROM を省ける）。
+ * SELECT … FOR UPDATE、MERGE の THEN UPDATE・THEN DELETE、DELETE FROM（FROM で読む）は除く
+ */
+function isTargetPosition(tokens: readonly ScanToken[], at: number): boolean {
+  const t = tokens[at];
+  if (isWord(tokens[at - 1], "FOR", "THEN", "KEY")) return false;
+  if (isWord(t, "UPDATE", "INTO")) return true;
+  return isWord(t, "DELETE") && !isWord(tokens[at + 1], "FROM");
 }
 
 const publicRef = ({
@@ -494,8 +527,8 @@ type StatementSpan = { from: number; to: number; first: number; last: number };
 
 /**
  * SQL を文に分ける。区切りは、括弧の外の ;、SQL Server の GO だけの行、Oracle の / だけの行。
- * A5:SQL Mk-2 などで ; を書かずに問い合わせを並べることがあるので、問い合わせ（SELECT / WITH で始まる文）の
- * 途中に、括弧の外で新しい問い合わせが始まったら（UNION などの後の SELECT や、WITH の後の本体の SELECT は除く）そこでも分ける
+ * A5:SQL Mk-2 などで ; を書かずに文を並べることがあるので、括弧の外で次の文が始まったところでも分ける
+ * （startsStatement。UNION などの後の SELECT や、WITH の後の本体、INSERT ... SELECT などは除く）
  */
 function statementSpans(
   dialect: Dialect,
@@ -505,28 +538,39 @@ function statementSpans(
   const spans: StatementSpan[] = [];
   let first = 0;
   let from = 0;
-  /** 今の文で、括弧の外の SELECT が出てきたか（WITH の後の本体の SELECT を見分ける） */
-  let mainSelect = false;
+  /** 今の文の本体の最初の語（WITH の文では、名前の定義の後の SELECT や INSERT など）。まだなら null */
+  let body: number | null = null;
+  const open = (next: number) => {
+    first = next;
+    body = isWord(tokens[next], "WITH") ? null : next;
+  };
   const close = (last: number, to: number, nextFrom: number, next: number) => {
     spans.push({ from, to, first, last });
-    first = next;
     from = nextFrom;
-    mainSelect = false;
+    open(next);
   };
+  open(0);
   for (const [i, t] of tokens.entries()) {
     if (isPunct(t, ";") && t.depth === 0) {
       close(i, t.start, t.end, i + 1);
     } else if (isSeparatorLine(dialect, text, t)) {
       close(i, t.start, t.end, i + 1);
-    } else if (i > first && startsQuery(tokens, first, i, mainSelect)) {
+    } else if (i > first && body !== null && startsStatement(tokens, body, i)) {
       close(i, t.start, t.start, i);
-    } else if (isWord(t, "SELECT") && t.depth === 0) {
-      mainSelect = true;
+    } else if (
+      body === null &&
+      t.depth === 0 &&
+      isWord(t, "SELECT", ...WRITE_STARTS)
+    ) {
+      body = i;
     }
   }
   close(tokens.length, text.length, text.length, tokens.length);
   return spans;
 }
+
+/** 書き込みの文の始まりの語 */
+const WRITE_STARTS = ["INSERT", "UPDATE", "DELETE", "MERGE"];
 
 /** 文の区切りの行（SQL Server の GO だけの行、Oracle の / だけの行）の字句か */
 function isSeparatorLine(
@@ -554,32 +598,48 @@ export function separatorLines(
     .map(({ start, end }) => ({ start, end }));
 }
 
-/** tokens[i] で新しい問い合わせが始まるか（; を書かずに並べた問い合わせの区切り） */
-function startsQuery(
+/**
+ * tokens[i] で次の文が始まるか（; を書かずに並べた文の区切り）。body は今の文の本体の最初の語。
+ * 分けるのは、本体が SELECT・INSERT・UPDATE・DELETE の文だけ（MERGE やほかの文は ; まで）
+ */
+function startsStatement(
   tokens: readonly ScanToken[],
-  first: number,
+  body: number,
   i: number,
-  mainSelect: boolean,
 ): boolean {
-  const head = tokens[first];
+  const head = tokens[body];
   const t = tokens[i];
-  // 問い合わせの途中だけ分ける（INSERT ... SELECT などは分けない。読み取り専用なので実行もしない）
-  if (!isWord(head, "SELECT", "WITH") || !t || t.depth !== 0) return false;
-  if (isWord(t, "SELECT")) {
-    // UNION SELECT などは同じ文。WITH の後の最初の SELECT は本体
-    if (isWord(tokens[i - 1], ...SET_OPERATORS, "AS")) return false;
-    return !(isWord(head, "WITH") && !mainSelect);
+  const prev = tokens[i - 1];
+  if (t?.depth !== 0) return false;
+  // SELECT ... FOR UPDATE、MERGE の WHEN ... THEN UPDATE、MySQL の ON DUPLICATE KEY UPDATE は同じ文
+  const write =
+    isWord(t, ...WRITE_STARTS) && !isWord(prev, "FOR", "THEN", "KEY");
+  const select = isWord(t, "SELECT") && !isWord(prev, ...SET_OPERATORS, "AS");
+  if (isWord(head, "SELECT", "UPDATE", "DELETE")) {
+    return write || select || startsCte(tokens, i);
   }
-  // WITH 名前 [(列…)] AS ( の形だけ（テーブルのヒントの WITH (NOLOCK) や START WITH などは除く）
-  if (isWord(t, "WITH") && isIdent(tokens[i + 1])) {
-    let j = i + 2;
-    if (isPunct(tokens[j], "(")) {
-      while (j < tokens.length && !isPunct(tokens[j], ")")) j += 1;
-      j += 1;
-    }
-    return isWord(tokens[j], "AS") && isPunct(tokens[j + 1], "(");
+  if (isWord(head, "INSERT")) {
+    // Oracle の INSERT ALL / FIRST（複数の表に入れる）は、最後の SELECT まで 1 つの文
+    if (isWord(tokens[body + 1], "ALL", "FIRST")) return false;
+    if (write) return true;
+    // INSERT ... SELECT（と Oracle の INSERT ... WITH）は同じ文。VALUES (...) の後なら次の文
+    const values = tokens
+      .slice(body, i)
+      .some((u) => u.depth === 0 && isWord(u, "VALUES"));
+    return values && (select || startsCte(tokens, i));
   }
   return false;
+}
+
+/** tokens[i] が WITH 名前 [(列…)] AS ( の形か（テーブルのヒントの WITH (NOLOCK) や START WITH などは除く） */
+function startsCte(tokens: readonly ScanToken[], i: number): boolean {
+  if (!isWord(tokens[i], "WITH") || !isIdent(tokens[i + 1])) return false;
+  let j = i + 2;
+  if (isPunct(tokens[j], "(")) {
+    while (j < tokens.length && !isPunct(tokens[j], ")")) j += 1;
+    j += 1;
+  }
+  return isWord(tokens[j], "AS") && isPunct(tokens[j + 1], "(");
 }
 
 const SET_OPERATORS = ["UNION", "ALL", "INTERSECT", "EXCEPT", "MINUS"];
@@ -689,8 +749,8 @@ export function sqlOutline(dialect: Dialect, text: string): SqlOutline {
       const single =
         parts.length === 1 ? (parts[0]?.name.toUpperCase() ?? null) : null;
       const skip =
-        // 関数の呼び出し
-        isPunct(after, "(") ||
+        // 関数の呼び出し（INSERT INTO 表 (列…) の表は除く）
+        (isPunct(after, "(") && !table) ||
         // 列の別名の定義（AS の後と、名前の直後の名前）と、WITH の名前
         isWord(before, "AS") ||
         isPunct(before, ")") ||
